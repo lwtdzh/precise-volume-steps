@@ -300,12 +300,68 @@ final class VolumeAdjustmentController {
             // Playback, routing, presets and our own writes must not open UI
             // or cause another correction.
             if (gesture == null && pendingCorrection == null) {
-                histories[stream].clear();
-                overlay.updateActual(stream, current, audio.getStreamMaxVolume(stream));
+                if (inferLockedOffHardwareKey(stream, previous, current)) {
+                    beginInferredHardwareKey(stream, previous, current);
+                } else {
+                    histories[stream].clear();
+                    overlay.updateActual(stream, current, audio.getStreamMaxVolume(stream));
+                }
             }
         } catch (RuntimeException exception) {
             record("volume read failed: " + exception);
         }
+    }
+
+    /**
+     * With the display off or the keyguard locked, some firmwares route hardware volume
+     * keys straight to the audio service. The native coarse jump still happens, but the
+     * key never carries the pass-to-user flag, so accessibility cannot authorize the
+     * correction. Treat a single hardware-sized media transition as key evidence in that
+     * state. The unlocked display keeps the strict key-only rule.
+     */
+    private boolean inferLockedOffHardwareKey(int stream, int before, int after) {
+        int delta = after - before;
+        if (delta == 0) {
+            return false;
+        }
+        PowerManager power = context.getSystemService(PowerManager.class);
+        KeyguardManager keyguard = context.getSystemService(KeyguardManager.class);
+        if (power.isInteractive() && !keyguard.isKeyguardLocked()) {
+            return false;
+        }
+        // A call or an active A2DP route changes which device the key controls; leave
+        // those transitions to the system.
+        if (audio.getMode() != AudioManager.MODE_NORMAL || audio.isBluetoothA2dpOn()) {
+            return false;
+        }
+        int min = audio.getStreamMinVolume(stream);
+        int max = audio.getStreamMaxVolume(stream);
+        if (before < min || before > max || after < min || after > max) {
+            return false;
+        }
+        int range = Math.max(1, max - min);
+        int coarseStep = Math.max(1, (range + 14) / 15);
+        // One or two hardware presses can land in the same 250 ms polling window.
+        return Math.abs(delta) <= coarseStep * 2;
+    }
+
+    private void beginInferredHardwareKey(int stream, int before, int after) {
+        long now = SystemClock.uptimeMillis();
+        holdKeyWakeLock();
+        overlay.holdUpdates();
+        shizuku.invalidate();
+        compatibility.invalidate();
+        Gesture g = new Gesture(snapshot());
+        g.initial[stream] = before;
+        g.stream = stream;
+        g.lastNativeValue = after;
+        g.lastNativeChange = now;
+        g.lastPress = now;
+        g.directions.add(Integer.signum(after - before));
+        gesture = g;
+        record("locked/off native change inferred direction=" + Integer.signum(after - before)
+                + " stream=" + stream + " " + before + " -> " + after);
+        handler.postDelayed(detectKey, DETECT_MS);
     }
 
     private void apply(int stream, int target) {
@@ -322,47 +378,76 @@ final class VolumeAdjustmentController {
             plannedGesture = null;
             pendingCorrection = correction;
             if (target != current) {
-                if (shizuku.ready()) {
-                    record("Shizuku key write stream=" + stream + " target=" + target);
-                    shizuku.adjust(stream, target, current, correction.requestedAt + 500,
-                            result -> {
-                                if (pendingCorrection != correction || closed) {
-                                    return;
-                                }
-                                record("Shizuku result=" + result);
-                                if (result < 0) {
-                                    pendingCorrection = null;
-                                    markUnconfirmed(stream);
-                                } else {
-                                    confirmCorrection();
-                                }
-                            });
-                    handler.postDelayed(confirmWrite, DETECT_MS);
-                    return;
-                }
-                if (compatibility.ready()) {
-                    record("companion key write stream=" + stream + " target=" + target);
-                    compatibility.adjust(stream, target, current, correction.requestedAt + 500,
-                            result -> {
-                                if (pendingCorrection != correction || closed) return;
-                                record("companion result=" + result);
-                                if (result < 0) {
-                                    pendingCorrection = null;
-                                    markUnconfirmed(stream);
-                                } else {
-                                    confirmCorrection();
-                                }
-                            });
-                    handler.postDelayed(confirmWrite, DETECT_MS);
-                    return;
-                }
-                audio.setStreamVolume(stream, target, 0);
+                dispatchCorrection(correction, current, 0);
+                return;
             }
             record("key write stream=" + stream + " target=" + target);
             confirmCorrection();
         } catch (RuntimeException exception) {
             pendingCorrection = null;
             markUnconfirmed(stream);
+            record("correction failed: " + exception);
+        }
+    }
+
+    private void dispatchCorrection(Correction correction, int current, int attempt) {
+        if (closed || pendingCorrection != correction) {
+            return;
+        }
+        if (shizuku.ready()) {
+            record("Shizuku key write stream=" + correction.stream + " target=" + correction.target);
+            shizuku.adjust(correction.stream, correction.target, current, correction.requestedAt + 500,
+                    result -> {
+                        if (pendingCorrection != correction || closed) return;
+                        record("Shizuku result=" + result);
+                        if (result < 0) {
+                            pendingCorrection = null;
+                            markUnconfirmed(correction.stream);
+                        } else {
+                            confirmCorrection();
+                        }
+                    });
+            handler.postDelayed(confirmWrite, DETECT_MS);
+            return;
+        }
+        if (compatibility.ready()) {
+            record("companion key write stream=" + correction.stream + " target=" + correction.target);
+            compatibility.adjust(correction.stream, correction.target, current, correction.requestedAt + 500,
+                    result -> {
+                        if (pendingCorrection != correction || closed) return;
+                        record("companion result=" + result);
+                        if (result < 0) {
+                            pendingCorrection = null;
+                            markUnconfirmed(correction.stream);
+                        } else {
+                            confirmCorrection();
+                        }
+                    });
+            handler.postDelayed(confirmWrite, DETECT_MS);
+            return;
+        }
+        // The firmware can ignore this app's own background write after the helper
+        // process has just been recreated. Give the provider connection a bounded
+        // moment to recover instead of issuing a write that is bound to fail.
+        boolean background = !context.getSystemService(PowerManager.class).isInteractive()
+                || context.getSystemService(KeyguardManager.class).isKeyguardLocked();
+        if (background && CompatibilityVolumeBridge.supportedDevice() && attempt < 4) {
+            record("waiting for volume backend attempt=" + attempt
+                    + " stream=" + correction.stream);
+            handler.postDelayed(() -> {
+                if (pendingCorrection == correction) {
+                    dispatchCorrection(correction, current, attempt + 1);
+                }
+            }, 150);
+            return;
+        }
+        try {
+            audio.setStreamVolume(correction.stream, correction.target, 0);
+            record("key write stream=" + correction.stream + " target=" + correction.target);
+            confirmCorrection();
+        } catch (RuntimeException exception) {
+            pendingCorrection = null;
+            markUnconfirmed(correction.stream);
             record("correction failed: " + exception);
         }
     }

@@ -4,8 +4,8 @@
 
 The project began as the independent `volume-steps` module inside
 `yuehong-privilege-assistant`. It was renamed to `precise-volume-steps` on
-2026-10-26. The app is now `精准音量` / Precise Volume Steps, main version 1.4.12,
-code 17; helper version 1.1, code 2. It is a standalone Gradle project with
+2026-10-26. The app is now `精准音量` / Precise Volume Steps, main version 1.4.13,
+code 18; helper version 1.1, code 2. It is a standalone Gradle project with
 root app sources in `src/`, a `compatibility-helper` application and optional
 `tests/host` application. Do not introduce the enclosing app's Root, firmware or
 exploit modules into this project.
@@ -21,6 +21,7 @@ exploit modules into this project.
 | Signature permission | `roro.stellar.volumesteps.permission.ADJUST_COMPATIBILITY_VOLUME` |
 | Shared helper AIDL | `compatibility-aidl/.../IVolumeCompatibility.aidl` |
 | Test host package | `roro.stellar.volumesteps.testhost` |
+| Helper routed-write test package | `com.vivo.finevolumesteps.helper.test` (androidTest only) |
 | Settings | Device-protected `volume_step_settings` SharedPreferences |
 
 The helper has no launcher activity, foreground notification, overlay or boot
@@ -162,11 +163,40 @@ Eight emulator checks passed with actual power state/audio but synthetic
 controller callbacks. They verify full-key correction, missing-down recovery,
 hidden panel, no display wake and wake-lock expiry.
 
-**Physical Vivo screen-off/locked buttons remain unverified.** Suppressing both
-down and up leaves no key evidence and the current implementation cannot correct.
-The helper package does not fix this. Bluetooth route/endpoints and actual
-Vivo reboot recovery also remain unverified. Record these as outstanding,
-not as fixed based on a callback or emulator test.
+### 1.4.13: locked/asleep native-jump inference
+
+Automated ADB diagnosis on the V2419A separated two layers:
+
+- A shell-created UHID consumer device is **not a wake source**. Raw `getevent`
+  on its node captured `KEY_VOLUMEDOWN DOWN/UP` while the display was asleep,
+  yet InputReader/`VivoInputPolicy` dropped the event before both audio and the
+  accessibility filter: native volume stayed unchanged and the app logged no
+  key. Shell cannot write `/dev/input/event*` (SELinux), enable sysfs wakeup,
+  or use `UHID_SET_WAKEUP`, so no adb-only input reproduces the physical
+  wake-key input path. Treat this as a harness limitation.
+- When the physical key is routed straight to audio while asleep, the native
+  coarse jump occurs without a pass-to-user event, so accessibility never sees a
+  key. `VolumeAdjustmentController.inferLockedOffHardwareKey` now treats the
+  observed media transition as key evidence only when:
+  - the display is non-interactive or the keyguard is locked,
+  - audio mode is normal and A2DP is inactive (headset/AVRCP and calls stay
+    with the system),
+  - the jump is one or two hardware coarse steps,
+    `ceil((max-min)/15)` ≤ |delta| ≤ `2*ceil(...)`.
+  It plans from the pre-jump value through the same anchored history, holds the
+  existing 2 s partial wake lock, keeps the panel hidden, and requires readback.
+  The unlocked display still ignores passive changes; this is regression tested.
+- `dispatchCorrection` waits up to about 600 ms for a supported companion
+  binder after helper-process recreation instead of using the main UID, whose
+  background write the firmware ignores. Do not remove the bound when no
+  companion is available: foreground direct writes and non-Vivo devices need it.
+
+Real-phone verification on 2026-10-26 used a helper-UID test instrumentation to
+make the firmware-equivalent routed jump while `input keyevent 223` had put the
+display to sleep: 60→50 inferred and corrected to 57; 60→70 inferred and
+corrected to 63 (50 steps, range 150); screen stayed Asleep, no panel attached.
+The physical wake-key input path remains distinct and was not directly pressed.
+Bluetooth route behavior and a real reboot remain outstanding.
 
 ## Reversible universal spacing
 
@@ -241,6 +271,8 @@ panel dismissal delay=1200 ms. Keep expiry/readback cancellation bounded.
 | 1.4.11 screen-off emulator | 8/8 |
 | 1.4.11 live unlocked Vivo external HID | 21→24→27→30→27→24→21 |
 | 1.4.12 rename | Builds/lint, 20 unit tests, APK labels and signatures |
+| 1.4.13 screen-off emulator | 14/14 (includes routed-jump inference and unlocked guard) |
+| 1.4.13 real Vivo asleep routed writes | down 60→50→57, up 60→70→63; screen stayed off, no panel |
 
 First failed Vivo run: “background press 17 fine correction”; key and native
 24→14 observed, no subsequent correction write. Cause undiagnosed.

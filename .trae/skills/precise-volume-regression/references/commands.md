@@ -146,6 +146,39 @@ native strides; it cannot certify Bilibili or an OEM by itself.
 Historical assertions may expose current platform timing differences; investigate
 and fix tests/code from evidence, never weaken them just to get a passing count.
 
+## Automated real-phone screen-off verification (P15)
+
+Shell-created UHID keys and `input keyevent` are dropped by the tested firmware
+while asleep and prove nothing about the physical wake-key path; raw `getevent`
+still shows their kernel events. Physical node writes, sysfs wakeup and
+`UHID_SET_WAKEUP` are denied without root. Reproduce the firmware's *audio
+outcome* instead with a helper-UID writer:
+
+```sh
+# build the test-only routed-write instrumentation (never in release helper)
+./gradlew -PvolumeStepsE2E=true :compatibility-helper:assembleDebugAndroidTest
+adb -s SERIAL install -r -t \
+  compatibility-helper/build/outputs/apk/androidTest/debug/compatibility-helper-debug-androidTest.apk
+
+# persistent daemon process (a recreated helper process kills the held binder)
+adb -s SERIAL shell 'am instrument -w -e mode daemon \
+  com.vivo.finevolumesteps.helper.test/roro.stellar.volumesteps.compatibility.AudioRouteInstrumentation' &
+# wait for logcat tag PVSRoute READY, then ~3 s for the main app to reconnect
+adb -s SERIAL shell am broadcast -a pvs.tests.ROUTE_VOLUME \
+  -p com.vivo.finevolumesteps.helper --ei stream 3 --ei value 50 --es token down1
+# result: logcat -s PVSRoute:I  RESULT token=.. before=.. requested=.. after=.. applied=..
+```
+
+Sequence for one case: disable Bluetooth and confirm `Devices: speaker`; set the
+baseline while unlocked; `input keyevent 223`; confirm `mWakefulness=Asleep`;
+broadcast a coarse jump; expect service events `native change inferred` and
+`companion result` to the anchored fine target, `overlay=attached=false`, and
+screen still Asleep. Wake and pattern-unlock between cases. At the end stop the
+daemon, force-stop the helper (main reconnects automatically), re-enable
+Bluetooth and uninstall the `.test` package. A secure pattern can be entered
+with `input motionevent DOWN/MOVE.../UP` through the 3x3 dot centers from the
+`lockPatternView` bounds; keep the PIN out of Git and logs.
+
 ## Passive installed-phone checks
 
 `tests/phone_passive.py --serial SERIAL --output /tmp/pvs-passive` observes

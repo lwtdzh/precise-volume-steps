@@ -55,12 +55,17 @@ public final class ScreenOffInstrumentation extends Instrumentation {
             diagnostics = method("diagnostics");
             runOnMainSync(() -> target.startActivity(new Intent(Intent.ACTION_MAIN)
                     .addCategory(Intent.CATEGORY_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)));
-            shell("input keyevent 223");
-            Thread.sleep(300);
-            check("screen is off", report().contains("screen interactive=false"));
+            // Baselines are set while unlocked so passive preset changes are not inferred
+            // as keys; the screen is then switched off for each routed scenario.
+            shell("input keyevent 224");
+            shell("wm dismiss-keyguard");
+            Thread.sleep(600);
             set(4);
-            Thread.sleep(300);
+            Thread.sleep(400);
             invoke(cancel);
+            shell("input keyevent 223");
+            Thread.sleep(600);
+            check("screen is off", report().contains("screen interactive=false"));
             long now = SystemClock.uptimeMillis();
             invoke(key, new KeyEvent(now, now, 0, KeyEvent.KEYCODE_VOLUME_UP, 0));
             set(5);
@@ -68,9 +73,16 @@ public final class ScreenOffInstrumentation extends Instrumentation {
             check("screen-off full key corrects native volume", waitFor(expected));
             check("screen-off full key keeps panel hidden", report().contains("overlay=attached=false"));
             check("correction does not wake display", report().contains("screen interactive=false"));
+            // Reset the baseline while unlocked before exercising key-up-only delivery.
+            shell("input keyevent 224");
+            shell("wm dismiss-keyguard");
+            Thread.sleep(600);
             invoke(cancel);
             set(4);
-            Thread.sleep(300);
+            Thread.sleep(400);
+            invoke(cancel);
+            shell("input keyevent 223");
+            Thread.sleep(600);
             now = SystemClock.uptimeMillis();
             set(5);
             Thread.sleep(60);
@@ -80,6 +92,48 @@ public final class ScreenOffInstrumentation extends Instrumentation {
             Thread.sleep(2200);
             check("wake lock released after key", report().contains("key wake lock held=false"));
             check("display remains off after wake lock release", report().contains("screen interactive=false"));
+
+            // Firmware may route the hardware key straight to audio while the screen is
+            // off, delivering neither key-down nor key-up to accessibility. A single
+            // coarse native jump must still be recognized and corrected.
+            invoke(cancel);
+            int interval = (int) Math.round((double) max / Math.min(max, steps));
+            int origin = Math.min(max - interval - 1, expected + 2);
+            int routed = origin - 1;
+            int inferredTarget = origin - interval;
+            // Establish the baseline while unlocked; passive changes must not be treated
+            // as keys there.
+            shell("input keyevent 224");
+            shell("wm dismiss-keyguard");
+            Thread.sleep(800);
+            invoke(cancel);
+            set(origin);
+            Thread.sleep(400);
+            invoke(cancel);
+            // Simulate firmware-only audio routing after the display sleeps.
+            shell("input keyevent 223");
+            Thread.sleep(600);
+            check("screen is off before routed jump", report().contains("screen interactive=false"));
+            set(routed);
+            check("screen-off routed coarse jump is inferred as a key",
+                    waitFor(inferredTarget));
+            check("inference recorded", report().contains("native change inferred"));
+            check("inferred correction keeps panel hidden", report().contains("overlay=attached=false"));
+            check("inferred correction does not wake display",
+                    report().contains("screen interactive=false"));
+
+            // The unlocked display must keep the strict key-only rule: the same
+            // externally applied volume stays untouched.
+            shell("input keyevent 224");
+            shell("wm dismiss-keyguard");
+            Thread.sleep(800);
+            invoke(cancel);
+            int unlocked = audio.getStreamVolume(3);
+            set(Math.max(0, unlocked - 1));
+            Thread.sleep(700);
+            check("unlocked external volume change is not inferred as a key",
+                    audio.getStreamVolume(3) == Math.max(0, unlocked - 1));
+
             result.putString("diagnostics", report());
         } catch (Exception e) {
             result.putString("error", e.toString());

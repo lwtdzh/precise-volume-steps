@@ -6,7 +6,7 @@
 
 | 手机与使用方式 | 需要安装 |
 |---|---|
-| 普通模式 | [主应用 1.4.12](dist/precise-volume-steps-1.4.12.apk) |
+| 普通模式 | [主应用 1.4.13](dist/precise-volume-steps-1.4.13.apk) |
 | 已验证的 vivo 固件，想在后台调节且不用 Shizuku | 主应用 + [独立兼容助手 1.1](dist/precise-volume-steps-compatibility-helper-1.1.apk) |
 | 普通模式在后台无效，改用 Shizuku | 主应用 + [Shizuku](https://shizuku.rikka.app/)；不需要兼容助手 |
 
