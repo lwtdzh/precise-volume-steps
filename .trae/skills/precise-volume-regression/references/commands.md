@@ -1,9 +1,16 @@
 # Standalone build and automated evidence
 
 Run from the repository root. Python utilities require Python 3.9+; Android
-builds require JDK 21, Android platform 37 and build-tools 36.0.0.
+builds require JDK 21, Android platform 37.0 and build-tools 36.0.0.
 Set ANDROID_HOME/JAVA_HOME for the current machine or provide a local SDK path.
 The project does not require the former enclosing repository.
+
+Install the exact SDK package name; `platforms;android-37` is not the package used
+by this release DSL:
+
+```sh
+sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
+```
 
 ```sh
 ./gradlew -PvolumeStepsE2E=true \
