@@ -1,0 +1,25 @@
+.gradle/
+**/build/
+local.properties
+.idea/
+*.iml
+.DS_Store
+**/__pycache__/
+*.pyc
+*.log
+.cxx/
+.externalNativeBuild/
+*.jks
+*.keystore
+*.key
+*.pem
+*.p12
+.env
+signing.properties
+keystore.properties
+# Keep the two distributed APKs; exclude historical binaries and device captures.
+dist/*
+!dist/precise-volume-steps-1.4.12.apk
+!dist/precise-volume-steps-compatibility-helper-1.1.apk
+!dist/verification-1.4.12.md
+!dist/SHA256SUMS.txt

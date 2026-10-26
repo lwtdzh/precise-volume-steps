@@ -1,0 +1,24 @@
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    plugins {
+        id 'com.android.application' version '8.13.2'
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'precise-volume-steps'
+include ':compatibility-helper'
+if (providers.gradleProperty('volumeStepsE2E').getOrElse('false') == 'true') {
+    include ':precise-volume-steps-test-host'
+    project(':precise-volume-steps-test-host').projectDir = file('tests/host')
+}

@@ -1,0 +1,26 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'roro.stellar.volumesteps.compatibility'
+    defaultConfig {
+        // This firmware permits this prefix for background audio writes.
+        // The app is an independently signed Precise Volume Steps companion.
+        applicationId 'com.vivo.finevolumesteps.helper'
+        minSdk 28
+        targetSdk 37
+        versionCode 2
+        versionName '1.1'
+    }
+    buildFeatures {
+        aidl true
+    }
+    sourceSets.main.aidl.srcDir '../compatibility-aidl'
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.debug
+        }
+    }
+}

@@ -1,0 +1,17 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <permission android:name="roro.stellar.volumesteps.permission.ADJUST_COMPATIBILITY_VOLUME"
+        android:protectionLevel="signature" />
+    <queries>
+        <package android:name="roro.stellar.volumesteps" />
+    </queries>
+    <application android:allowBackup="false" android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:icon="@drawable/ic_compatibility_volume"
+        android:label="精准音量兼容助手（独立应用）" android:supportsRtl="true">
+        <provider android:name=".CompatibilityVolumeProvider" android:exported="true"
+            android:authorities="com.vivo.finevolumesteps.helper.volume"
+            android:directBootAware="true"
+            android:permission="roro.stellar.volumesteps.permission.ADJUST_COMPATIBILITY_VOLUME" />
+    </application>
+</manifest>

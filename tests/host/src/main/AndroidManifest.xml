@@ -1,0 +1,29 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <instrumentation android:name=".DumpUiInstrumentation"
+        android:targetPackage="roro.stellar.volumesteps.testhost" />
+    <instrumentation android:name=".PollOnlyInstrumentation"
+        android:targetPackage="roro.stellar.volumesteps" />
+    <instrumentation android:name=".PhoneProbeInstrumentation"
+        android:targetPackage="roro.stellar.volumesteps" />
+    <instrumentation android:name=".VolumeRegressionInstrumentation"
+        android:targetPackage="roro.stellar.volumesteps" />
+    <instrumentation android:name=".ShizukuRegressionInstrumentation"
+        android:targetPackage="roro.stellar.volumesteps" />
+    <instrumentation android:name=".OverlayStabilityInstrumentation"
+        android:targetPackage="roro.stellar.volumesteps" />
+    <instrumentation android:name=".FinalPanelInstrumentation"
+        android:targetPackage="roro.stellar.volumesteps" />
+    <instrumentation android:name=".ScreenOffInstrumentation"
+        android:targetPackage="roro.stellar.volumesteps" />
+    <instrumentation android:name=".OrdinaryModeProbeInstrumentation"
+        android:targetPackage="roro.stellar.volumesteps" />
+    <application android:label="Volume test host"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <activity android:name=".HostActivity" android:exported="true" />
+        <service android:name=".PlaybackService" android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+    </application>
+</manifest>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="enable_correction" type="id" />
+    <item name="background_status" type="id" />
+    <item name="background_permissions" type="id" />
+    <item name="auto_start_settings" type="id" />
+    <item name="volume_steps" type="id" />
+    <item name="export_diagnostics" type="id" />
+    <item name="shizuku_status" type="id" />
+    <item name="shizuku_setup" type="id" />
+</resources>

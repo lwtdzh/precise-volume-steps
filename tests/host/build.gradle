@@ -1,0 +1,13 @@
+plugins {
+    id 'com.android.application'
+}
+android {
+    namespace 'roro.stellar.volumesteps.testhost'
+    defaultConfig {
+        applicationId 'roro.stellar.volumesteps.testhost'
+        minSdk 28
+        targetSdk 36
+        versionCode 1
+        versionName '1'
+    }
+}
