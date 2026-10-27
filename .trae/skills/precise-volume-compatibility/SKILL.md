@@ -29,6 +29,14 @@ a phone. Read the repository's
 5. Core rounding and panel displays use Android's native range. Universal volume
    math does not imply universal OEM background permissions.
 
+Keep the raw callback's 250 ms freshness limit separate from the 300 ms wait
+after release before correction. A fresh callback can still precede a delayed
+native write. Check both orderings in the
+[screen-off cases](../precise-volume-regression/references/screen-off-cases.md).
+Use the preceding real sample when native audio policy changed volume before
+the raw snapshot; retain the observed value when a passive preset preceded
+the key. Never classify a passive native jump alone as a key.
+
 ## Work procedure
 
 - Establish actual model, API level, fingerprint, stream, minimum and maximum,

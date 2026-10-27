@@ -169,6 +169,14 @@ expiry. This is external HID evidence on a real phone, not built-in button
 certification. No root or destructive main-process fixture is used for the
 input sequence.
 
+Use `screen-off-cases.md` to identify the assertions required for a particular
+failure. In the final 1.4.14 runs, the native 150/50 case started at 121 and
+reached 106 after five asleep down presses, then 103 after the awake sixth:
+81%→69%. At 150/64, start 74 and expect 72,69,67,65,62, then 60. Compute
+expectations with Java rounding for arbitrary native ranges and origins.
+Each final HID run passed 83 assertions. Earlier 75-assertion runs omitted the
+final playback-continuity checks and cannot replace the final fixture.
+
 Compile the test-only HID executable and shell preset dex outside the repo:
 
 ```sh
@@ -247,3 +255,19 @@ the report fail. Do not merge evidence across APKs just because versions match.
 Record a sanitized physical-phone matrix separately. Keep raw captures/logs and
 temporary APK pulls outside the repository; commit only reviewable summary
 evidence, code, skills and explicitly selected distribution artifacts.
+
+Record the host/UI observer hashes as well as the main/helper hashes for input
+tests. A host-only fixture change can invalidate an old run even when the main
+APK is unchanged. A rebuilt helper can retain version 1.1 and its certificate
+while changing bytes; distinguish the installed tested helper from an unchanged
+historical download. A run with every emitted assertion passing but an unlock,
+setup or restoration error is still failed. Keep old failures in a separate
+appendix when their APK or fixture differs from the final successful run.
+
+For an authorized push, verify CI against the full pushed commit SHA. Prefer an
+authenticated GitHub CLI/API when available. In this session the CLI had no
+login and the public API was rate-limited; the public Actions page still exposed
+structured run state and commit links. Match that exact commit and require
+completed/success. A direct run summary can resolve a lagging Actions list.
+Do not infer success from a generic `Success` substring, an older green run,
+or the absence of an error in the push command.

@@ -7,6 +7,8 @@ description: Verify volume behavior and releases against past user feedback. Use
 
 Read [build and automated suites](references/commands.md) and
 [the physical-phone feedback matrix](references/phone-matrix.md).
+For raw input, playback fixtures or interrupted phone tests, also read
+[screen-off regression cases and follow-ups](references/screen-off-cases.md).
 For vendor/startup/identity changes also read the
 [device compatibility skill](../precise-volume-compatibility/SKILL.md).
 
@@ -38,6 +40,19 @@ For vendor/startup/identity changes also read the
    reruns, restoration and untested requirements. Keep all original failed runs.
    Use `tests/write_report.py` for new evidence; never copy old pass counts into
    a new release as though rerun.
+
+## Resume an interrupted test
+
+Check for surviving processes and completed result files before issuing more
+input. Snapshot the current phone again; volume, accessibility and permissions
+may have changed while the agent was stopped. Do not overwrite newer user
+settings with the first session's snapshot. Restore only known test leftovers.
+Reuse a completed run only when its APK hash, fixture version, backend, steps
+and required assertions match. Keep an incomplete run and its errors separate.
+
+During input sequences, check playback and both main/player PIDs after every
+unlock or UI inspection, then around rapid bursts and holds. A visible player
+task or an unchanged main PID alone does not establish that playback continued.
 
 ## Do not regress
 

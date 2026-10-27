@@ -90,6 +90,69 @@ Do not replace `enabled_accessibility_services` with a single app; the earlier
 phone also used GKD. Compare before/after lists and then verify actual keeper
 diagnostics. If a helper update was made, also verify the provider reconnected.
 
+Check whether the component is enabled before toggling it. If it is absent from
+the list, adding it through the native UI legitimately changes that list.
+Compare against the previous other services plus the authorized main component;
+an unchanged-list assertion applies when reconnecting an already enabled service.
+Do not report a disconnected service as the cause of an earlier failure without
+matching evidence from that failure.
+
+On the observed Vivo, `dumpsys accessibility` uses multiline
+`Bound services:{Service[label=GKD, ...], Service[label=精准音量服务, ...]}`.
+The following `Enabled services` field contains package/component IDs.
+Parse the full bound-services section up to the next field; verify both labels,
+the expected component set and the keeper's `accessibility connected=true`.
+Do not search a single bound-service line for package names.
+
+## UI observation and blocked Settings
+
+Use the host component
+`roro.stellar.volumesteps.testhost/.DumpUiInstrumentation` with the separate
+`roro.stellar.volumesteps.uitools` target installed. Read the returned
+`INSTRUMENTATION_RESULT: path=` rather than hardcoding a host-specific XML path.
+Changing the target changes the external-files directory. Inspect private
+unlock helpers for this dependency without exposing their credentials.
+Keep the observer until the final UI/accessibility/shortcut checks are finished,
+then remove introduced host/observer/probe packages.
+
+For a reused playback activity, use `am start -f 0x20000000` so new extras reach
+`onNewIntent`. A plain start can merely bring the task forward and leave its
+previous play/stop state intact. Confirm real AudioTrack activity after launch
+and after backgrounding, not the requested `play=true` extra.
+
+If Settings appears to lack the expected service or shortcut, inspect the active
+window before more scrolling. A Vivo USB connection chooser from
+`com.vivo.frameworkui` obscured both Settings and installation in this session.
+Dismiss its inspected **取消** button when appropriate, then reopen the intended
+page. Do not interpret the obscured page as a missing app permission.
+
+For Vivo volume shortcuts, snapshot both Settings values and the selected
+camera option. Tap the inspected inner native switch, not the larger preference
+row; the row can advertise `clickable=true` without changing the setting.
+Allow the page to settle, then re-read Settings. Compare deserialized snapshots
+by normalized values: tuples returned by Python become lists in JSON.
+
+## Resume after interruption
+
+Check completed result files and surviving host/HID/instrumentation processes.
+Snapshot the current phone before modifying it. Record native volume, full
+preferences, accessibility enablement/connectivity, raw/write readiness, screen,
+playback, route, shortcuts and actual APK hashes. A stopped terminal does not
+prove Android-side fixtures or their cleanup finished.
+
+Distinguish known fixture leftovers from newer phone settings. If the last
+completed test restored volume 0 but the current phone reads 129, preserve 129
+unless evidence identifies it as an unfinished test write. Those numbers are
+an example from this session, not future preset/restoration values.
+Record an absent or frozen keeper before reopening; do not call it connected
+because its accessibility component appears in Settings.
+
+For a backend matrix, skip a completed cell only after checking its exact main
+APK, fixture identity, backend, step count, complete assertions and error-free
+completion. Restore all preferences in cleanup, not only steps or backend.
+Remove only fixtures introduced for the session and confirm no active playback,
+pending correction, overlay or key wake lock remains.
+
 ## Screen and installation record
 
 The user previously asked to keep the phone awake while away. In that session,

@@ -5,10 +5,10 @@
 The project began as the independent `volume-steps` module inside
 `yuehong-privilege-assistant`. It was renamed to `precise-volume-steps` on
 2026-10-26. The app is now `精准音量` / Precise Volume Steps, main version 1.4.14,
-code 18; helper version 1.1, code 2. It is a standalone Gradle project with
+code 26; helper version 1.1, code 2. It is a standalone Gradle project with
 root app sources in `src/`, a `compatibility-helper` application and optional
-`tests/host` application. Do not introduce the enclosing app's Root, firmware or
-exploit modules into this project.
+`tests/host` and `tests/ui` applications. Do not introduce the enclosing app's
+Root, firmware or exploit modules into this project.
 
 | Installed identity | Preserve |
 |---|---|
@@ -21,6 +21,7 @@ exploit modules into this project.
 | Signature permission | `roro.stellar.volumesteps.permission.ADJUST_COMPATIBILITY_VOLUME` |
 | Shared helper AIDL | `compatibility-aidl/.../IVolumeCompatibility.aidl` |
 | Test host package | `roro.stellar.volumesteps.testhost` |
+| UI observer target package | `roro.stellar.volumesteps.uitools` (test only) |
 | Helper routed-write test package | `com.vivo.finevolumesteps.helper.test` (androidTest only) |
 | Settings | Device-protected `volume_step_settings` SharedPreferences |
 
@@ -280,6 +281,23 @@ presses, then 103 after the awake sixth press: 81%→69%. All phone test
 packages/probes were removed and main/helper/Shizuku connectivity restored.
 The helper source stayed at 1.1; the newly built installed helper's byte hash
 differs from the historical distributed 1.1 APK and is recorded separately.
+
+On resuming the interrupted backend matrix, both completed Shizuku runs had
+restored native volume 0. The later phone readback was 129/150 and only GKD
+remained enabled in accessibility Settings. The cause of those changes was
+not established. The keeper initially reported that its package was frozen;
+after reopening, queued raw events had ages far beyond the freshness limit.
+Preserve the newer volume, inspect connection state, and reject stale volume
+events instead of replaying them as new presses. Re-enable the main service
+through the native UI when restoration is authorized, retaining other services.
+The final cleanup preserved 129/150 and verified main/GKD connectivity.
+
+The recovery also exposed two validation mistakes. A JSON snapshot stores
+Settings pairs as lists while the Python helper returns tuples; compare their
+values after normalization. Vivo's `dumpsys accessibility` lists bound services
+by labels over multiple lines, while enabled services contain package/component
+IDs. Parse these separate fields and verify connectivity; searching for package
+names on one bound-service line produces a false failure.
 
 ## Reversible universal spacing
 
