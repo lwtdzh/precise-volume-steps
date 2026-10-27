@@ -1,0 +1,98 @@
+name: Publish APK release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify the distributed APK
+        id: apk
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          import re
+
+          tag = os.environ["RELEASE_TAG"]
+          if not re.fullmatch(r"v\d+\.\d+\.\d+", tag):
+              raise SystemExit("Expected a version tag such as v1.4.14")
+          version = tag[1:]
+          configured = re.search(r"versionName '([^']+)'", Path("build.gradle").read_text())
+          if configured is None or configured.group(1) != version:
+              raise SystemExit("Tag and application version differ")
+          apk = Path("dist") / f"precise-volume-steps-{version}.apk"
+          notes = Path("release-notes") / f"{version}.md"
+          sums = dict(
+              (line.split()[1], line.split()[0])
+              for line in Path("dist/SHA256SUMS.txt").read_text().splitlines()
+              if line.strip()
+          )
+          digest = hashlib.sha256(apk.read_bytes()).hexdigest()
+          if sums.get(apk.name) != digest:
+              raise SystemExit("Distributed APK checksum does not match")
+          if not notes.is_file() or not notes.read_text().strip():
+              raise SystemExit("Release notes are missing")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              for key, value in (
+                  ("version", version), ("file", apk), ("name", apk.name),
+                  ("notes", notes), ("sha256", digest),
+              ):
+                  output.write(f"{key}={value}\n")
+          print(f"Verified {apk.name}: {digest}")
+          PY
+      - name: Publish the verified APK
+        env:
+          APK_FILE: ${{ steps.apk.outputs.file }}
+          APK_VERSION: ${{ steps.apk.outputs.version }}
+          RELEASE_NOTES: ${{ steps.apk.outputs.notes }}
+        run: |
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" "$APK_FILE" \
+              --repo "$GITHUB_REPOSITORY" --verify-tag --latest \
+              --title "精准音量 $APK_VERSION" --notes-file "$RELEASE_NOTES"
+          fi
+      - name: Verify the published release and download
+        env:
+          APK_NAME: ${{ steps.apk.outputs.name }}
+          APK_SHA256: ${{ steps.apk.outputs.sha256 }}
+        run: |
+          verify_dir="$RUNNER_TEMP/pvs-release-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -p "$verify_dir"
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "$APK_NAME" --dir "$verify_dir"
+          printf '%s  %s\n' "$APK_SHA256" "$verify_dir/$APK_NAME" | sha256sum --check -
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json isDraft,isPrerelease,url,tagName > "$verify_dir/release.json"
+          python3 - "$verify_dir/release.json" <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import sys
+          release = json.loads(Path(sys.argv[1]).read_text())
+          if release["isDraft"] or release["isPrerelease"]:
+              raise SystemExit("Release is not published as a stable version")
+          if release["tagName"] != os.environ["RELEASE_TAG"]:
+              raise SystemExit("Unexpected release tag")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write(f"Published {release['url']}\n\n")
+              summary.write(f"APK SHA-256: `{os.environ['APK_SHA256']}`\n")
+          print(release["url"])
+          PY

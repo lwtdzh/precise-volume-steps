@@ -271,3 +271,20 @@ structured run state and commit links. Match that exact commit and require
 completed/success. A direct run summary can resolve a lagging Actions list.
 Do not infer success from a generic `Success` substring, an older green run,
 or the absence of an error in the push command.
+
+## Publish an authorized APK release
+
+The tag-triggered `.github/workflows/release.yml` publishes the saved
+`dist/precise-volume-steps-VERSION.apk` with `release-notes/VERSION.md`.
+Commit both artifacts and their matching `dist/SHA256SUMS.txt` entry before
+creating and pushing `vVERSION`. The tag must agree with `build.gradle`.
+The workflow validates the APK hash, creates a stable release, downloads its
+asset and verifies the same hash. It uses GitHub's ephemeral repository token
+with `contents: write` limited to the publishing job; a local GitHub CLI login
+is not needed to trigger it through an authorized SSH tag push.
+
+Publish the exact distributed APK that was tested. A newly built Ubuntu CI APK
+uses a different development certificate and cannot replace the existing
+phone's APK as an upgrade. Verify the workflow result and public release asset
+before reporting publication. Never move an existing release tag or replace an
+existing mismatched asset silently.
