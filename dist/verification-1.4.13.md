@@ -1,5 +1,11 @@
 # Precise Volume Steps 1.4.13 — screen-off hardware-key correction
 
+Historical report. Version 1.4.14 removes the native-volume-jump heuristic
+described below: a passive preset could be mistaken for a key, and a suppressed
+key may make no native change. The routed-write results below are fixture
+evidence and do not certify built-in physical-button delivery. See the current
+README for the explicit Shizuku raw-input setup.
+
 2026-10-26, Vivo V2419A (PD2419, Android 16), fully automated over ADB with no
 manual interaction. Version code 18.
 

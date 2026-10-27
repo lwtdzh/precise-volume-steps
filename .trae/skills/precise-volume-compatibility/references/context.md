@@ -4,7 +4,7 @@
 
 The project began as the independent `volume-steps` module inside
 `yuehong-privilege-assistant`. It was renamed to `precise-volume-steps` on
-2026-10-26. The app is now `精准音量` / Precise Volume Steps, main version 1.4.13,
+2026-10-26. The app is now `精准音量` / Precise Volume Steps, main version 1.4.14,
 code 18; helper version 1.1, code 2. It is a standalone Gradle project with
 root app sources in `src/`, a `compatibility-helper` application and optional
 `tests/host` application. Do not introduce the enclosing app's Root, firmware or
@@ -163,7 +163,7 @@ Eight emulator checks passed with actual power state/audio but synthetic
 controller callbacks. They verify full-key correction, missing-down recovery,
 hidden panel, no display wake and wake-lock expiry.
 
-### 1.4.13: locked/asleep native-jump inference
+### 1.4.13: historical native-jump inference, removed in 1.4.14
 
 Automated ADB diagnosis on the V2419A separated two layers:
 
@@ -176,7 +176,7 @@ Automated ADB diagnosis on the V2419A separated two layers:
   wake-key input path. Treat this as a harness limitation.
 - When the physical key is routed straight to audio while asleep, the native
   coarse jump occurs without a pass-to-user event, so accessibility never sees a
-  key. `VolumeAdjustmentController.inferLockedOffHardwareKey` now treats the
+  key. `VolumeAdjustmentController.inferLockedOffHardwareKey` then treated the
   observed media transition as key evidence only when:
   - the display is non-interactive or the keyguard is locked,
   - audio mode is normal and A2DP is inactive (headset/AVRCP and calls stay
@@ -197,6 +197,89 @@ display to sleep: 60→50 inferred and corrected to 57; 60→70 inferred and
 corrected to 63 (50 steps, range 150); screen stayed Asleep, no panel attached.
 The physical wake-key input path remains distinct and was not directly pressed.
 Bluetooth route behavior and a real reboot remain outstanding.
+
+### 1.4.14: explicit raw volume-key input through ADB Shizuku
+
+The user's idle repro (81%, five down presses asleep, wake and one down:
+expected 69%, observed 79%) showed that a native-jump heuristic cannot handle
+keys that firmware drops before audio. The heuristic was also unsafe: an
+external slider or route change of the same size could authorize a write.
+It has been removed. Passive volume changes only update real observations.
+
+`VolumeKeyShellService`, `IVolumeKeyShell`, `IVolumeKeyListener` and
+`ShizukuKeyBridge` form a separate optional read-only backend. Existing
+`ShizukuVolumeBridge`, `VolumeShellService` and `IVolumeShell` are unchanged.
+UID 2000, explicit Shizuku selection and authorization are required.
+Bounded `getevent -lp` discovers dedicated volume/power nodes; keyboard, touch,
+relative-motion and switch devices are excluded. Per-node blocking readers
+pass only parsed volume/power events, never raw input text. A standalone power
+node alone cannot indicate volume readiness. Hotplug requests are rescanned,
+errors disable readiness, and Binder death/disable closes readers.
+
+A matched volume down/up pair must be fresh (250 ms); standalone release,
+stale input, opposing held keys, power chords and holds beyond 10 s cancel.
+Raw input owns noninteractive presses when available to avoid duplicate
+accessibility correction. Normal audio mode is required. Bluetooth A2DP was
+incorrectly excluded in an intermediate build; a real-phone reader probe
+showed fresh events on the connected Bluetooth route, and that guard was
+removed. Key presses then passed through Shizuku with independent system
+readback. Releases authorize correction; an absent native change is valid
+for this explicit raw path. Snapshot copies preserve the original rounding
+path across pending acknowledgements.
+
+An intermediate version-code-23 playback run missed the third asleep press:
+the system changed 115→105 before the raw callback's snapshot, while the poll
+still held 115. The controller incorrectly planned from 105 and wrote 102
+instead of 112. `RawVolumeBaseline` now handles both an unread native change
+and an already-observed change after the key, using the preceding real sample.
+Passive presets observed before the key become the new origin. Four unit
+tests record these orderings; the fresh-input timeout remains 250 ms.
+
+The next version-code-25 rapid run selected 112 correctly, but a late native
+adjustment changed it to 122 after the write. This was not stale raw input:
+every raw event arrived in 1–4 ms. Version code 26 waits at least 300 ms after
+the last release before correction, then also waits for native transitions
+to settle. This accommodates the firmware's delayed key dispatch and keeps
+pending burst directions together. Native writes still have the existing
+expected-current and expiry checks; this adds no retry of a failed write.
+
+The initial version-code-26 64-step playback burst failed after its test
+player had stopped: UI inspection during secure unlock targeted the host,
+which restarts its process. Retaining the main PID alone missed this.
+Audio diagnostics also reported background-playback hardening; adding focus
+alone did not fix the stopped player. UI inspection now targets a separate
+test-only observer application; component names used by external unlock
+helpers stay unchanged. The fixture requires the player PID and active
+playback to survive wake/unlock and checks playback again around bursts.
+These are fixture corrections, not changes to the production playback behavior.
+The next idle-to-playback run stopped at the audio-state assertion before
+playback key testing. `am start` had only brought the existing host task forward,
+so the new play extra never reached `onNewIntent`. The HID harness now uses
+`FLAG_ACTIVITY_SINGLE_TOP` for player starts and cleanup. Keep the audio-state
+assertions; task visibility alone does not establish active playback.
+
+The V2419A's dedicated nodes are `gpio-keys` (volume up) and `mtk-pmic-keys`
+(volume down + power). External UHID events were observed and corrected while
+truly asleep, with no hidden media session, display wake or invisible activity
+inside the app. The development host provides actual playback only for its
+playback test. The first version-code-23 rapid run woke the secure camera:
+ADB settings writes had silently failed. The fixture now disables the
+long-press and double-press shortcuts through the native UI, snapshots the
+camera option and verifies all original values at restoration. The original
+failed runs remain outside Git, separate from later repeats.
+Built-in physical-button delivery and real reboot remain
+untested; external HID success is recorded separately.
+
+Final code-26 evidence: 31 unit checks and release lint passed; 97 emulator
+checks passed. Complete Vivo external-HID runs passed 83 checks at 50 steps
+and 83 at 64 steps, with actual playback asserted across unlock and bursts.
+Shizuku backend runs passed 85 checks each at 50/64; companion runs passed
+87 each. See `dist/verification-1.4.14.md` for hashes and failed-run history.
+At 50 steps, both idle/playback runs gave 121→106 after five asleep down
+presses, then 103 after the awake sixth press: 81%→69%. All phone test
+packages/probes were removed and main/helper/Shizuku connectivity restored.
+The helper source stayed at 1.1; the newly built installed helper's byte hash
+differs from the historical distributed 1.1 APK and is recorded separately.
 
 ## Reversible universal spacing
 
@@ -252,7 +335,8 @@ pending phase. Equal text is not rewritten. The first panel is hidden until
 settlement. A rejected request for 68 with actual 71 must eventually show 71.
 
 Passive broadcasts/polling never reopen or extend the panel and never authorize
-new writes. Only key evidence plus a matching native transition does so.
+new writes. Accessibility correction requires a matching native transition;
+the optional raw backend can act on a fresh matched off-screen key release.
 DETECT_MS=35, KEY_TIMEOUT_MS=700, WRITE_TIMEOUT_MS=1000, POLL_MS=250;
 panel dismissal delay=1200 ms. Keep expiry/readback cancellation bounded.
 

@@ -6,7 +6,9 @@ import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Intent;
 import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
 import android.media.AudioFormat;
+import android.media.AudioManager;
 import android.media.AudioTrack;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
@@ -16,6 +18,7 @@ public final class PlaybackService extends Service {
     private volatile boolean playing;
     private AudioTrack track;
     private MediaSession session;
+    private AudioFocusRequest focus;
     @Override public void onCreate() {
         super.onCreate();
         getSystemService(NotificationManager.class).createNotificationChannel(
@@ -24,10 +27,23 @@ public final class PlaybackService extends Service {
         startForeground(1, new Notification.Builder(this, "playback")
                 .setSmallIcon(android.R.drawable.ic_media_play)
                 .setContentTitle("Silent test playback").build());
+        AudioAttributes attributes = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build();
+        focus = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(attributes)
+                .setOnAudioFocusChangeListener(change -> {
+                    if (track == null) return;
+                    if (change < 0) track.pause();
+                    else if (playing) track.play();
+                }).build();
+        if (getSystemService(AudioManager.class).requestAudioFocus(focus)
+                != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+            stopSelf();
+            return;
+        }
         track = new AudioTrack.Builder()
-                .setAudioAttributes(new AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                .setAudioAttributes(attributes)
                 .setAudioFormat(new AudioFormat.Builder().setSampleRate(16000)
                         .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                         .setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
@@ -60,8 +76,11 @@ public final class PlaybackService extends Service {
             session.setActive(false);
             session.release();
         }
-        track.stop();
-        track.release();
+        if (track != null) {
+            track.stop();
+            track.release();
+        }
+        if (focus != null) getSystemService(AudioManager.class).abandonAudioFocusRequest(focus);
         super.onDestroy();
     }
     @Override public IBinder onBind(Intent intent) { return null; }

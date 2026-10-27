@@ -16,7 +16,8 @@ sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
 ./gradlew -PvolumeStepsE2E=true \
   :assembleRelease :lintRelease :testReleaseUnitTest \
   :compatibility-helper:assembleRelease :compatibility-helper:lintRelease \
-  :precise-volume-steps-test-host:assembleDebug
+  :precise-volume-steps-test-host:assembleDebug \
+  :precise-volume-steps-test-ui:assembleDebug
 ```
 
 Use `--offline` after dependencies are available if network metadata stalls.
@@ -28,7 +29,8 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home \
 bash gradlew --offline -PvolumeStepsE2E=true \
   :assembleRelease :lintRelease :testReleaseUnitTest \
   :compatibility-helper:assembleRelease :compatibility-helper:lintRelease \
-  :precise-volume-steps-test-host:assembleDebug
+  :precise-volume-steps-test-host:assembleDebug \
+  :precise-volume-steps-test-ui:assembleDebug
 ```
 
 Outputs:
@@ -37,6 +39,7 @@ Outputs:
 build/outputs/apk/release/precise-volume-steps-release.apk
 compatibility-helper/build/outputs/apk/release/compatibility-helper-release.apk
 tests/host/build/outputs/apk/debug/precise-volume-steps-test-host-debug.apk
+tests/ui/build/outputs/apk/debug/precise-volume-steps-test-ui-debug.apk
 build/test-results/testReleaseUnitTest/TEST-*.xml
 build/reports/lint-results-release.xml
 ```
@@ -50,7 +53,7 @@ changes; record actual tested hash, not only versionName.
 
 ## Existing unit tests
 
-Baseline count is 20 (may grow):
+Current count is 31 (may grow):
 
 - `VolumeDisplayTest`: independent percent/configured-scale mapping.
 - `VolumeStepQuantizerTest`: older grid utility behavior.
@@ -58,6 +61,10 @@ Baseline count is 20 (may grow):
   ranges 7/15/50/100/120/150/255, every configured count 5–150; every interior
   origin on selected uneven/even ranges; immediate opposite keys; failed and
   external writes; no historical 14→15→16 stops; retracing/revisiting.
+- `RawVolumeKeyTest`: dedicated-node selection, separate power input, explicit
+  event parsing, fresh matched release, stale/unmatched keys, chords and bounded holds.
+- `RawVolumeBaselineTest`: audio policy writes before raw callbacks/polling,
+  already-observed transitions, rebasing from passive presets, failed reads.
 
 ## Instrumentation
 
@@ -74,6 +81,7 @@ before/after snapshots and restore the physical service connection.
 ```sh
 adb -s SERIAL install -r build/outputs/apk/release/precise-volume-steps-release.apk
 adb -s SERIAL install -r tests/host/build/outputs/apk/debug/precise-volume-steps-test-host-debug.apk
+adb -s SERIAL install -r tests/ui/build/outputs/apk/debug/precise-volume-steps-test-ui-debug.apk
 ```
 
 Vivo may require observed installer acknowledgement taps; use the compatibility
@@ -113,7 +121,7 @@ rejects frame/screen-off fixtures for a non-emulator serial.
 | `VolumeRegressionInstrumentation` | Ordinary AudioManager, passive/mute/canceled/consumed keys, delayed transitions, pending writes |
 | `FinalPanelInstrumentation` | Actual readback, delayed/rejected writes, first/held/final frames, fixed third-row bounds; 13 |
 | `OverlayStabilityInstrumentation` | Three rows and one bar, percent mapping, digit width, bounds, passive reopen; 56 |
-| `ScreenOffInstrumentation` | Actual off state, synthetic full and up-only keys, no panel/wake, wake-lock expiry; 8 |
+| `ScreenOffInstrumentation` | Actual off state, synthetic full/up-only keys, ignored passive/consumed events, no panel/wake, wake-lock expiry; 16 |
 
 The screen-off fixture wakes the emulator at cleanup and assumes a native
 range containing its baseline 4/5. It is not a general real-phone screen-off
@@ -146,38 +154,62 @@ native strides; it cannot certify Bilibili or an OEM by itself.
 Historical assertions may expose current platform timing differences; investigate
 and fix tests/code from evidence, never weaken them just to get a passing count.
 
-## Automated real-phone screen-off verification (P15)
+## Installed-phone screen-off raw input (P15)
 
-Shell-created UHID keys and `input keyevent` are dropped by the tested firmware
-while asleep and prove nothing about the physical wake-key path; raw `getevent`
-still shows their kernel events. Physical node writes, sysfs wakeup and
-`UHID_SET_WAKEUP` are denied without root. Reproduce the firmware's *audio
-outcome* instead with a helper-UID writer:
+The 1.4.13 helper-UID routed-jump test is historical. Its native-jump inference
+was removed because passive changes cannot authorize writes. Do not expect a
+routed preset without a key to be corrected.
+
+`tests/screen_off_hid.py` exercises the installed application's optional Shizuku
+raw reader with a persistent external consumer HID device and independent
+volume readback. It keeps the same main PID across sleep/wake, tests idle and
+actual AudioTrack playback, five asleep presses and one awake press, reversal,
+rapid mixed/pending bursts, held keys, passive presets, hidden panel and wake-lock
+expiry. This is external HID evidence on a real phone, not built-in button
+certification. No root or destructive main-process fixture is used for the
+input sequence.
+
+Compile the test-only HID executable and shell preset dex outside the repo:
 
 ```sh
-# build the test-only routed-write instrumentation (never in release helper)
-./gradlew -PvolumeStepsE2E=true :compatibility-helper:assembleDebugAndroidTest
-adb -s SERIAL install -r -t \
-  compatibility-helper/build/outputs/apk/androidTest/debug/compatibility-helper-debug-androidTest.apk
-
-# persistent daemon process (a recreated helper process kills the held binder)
-adb -s SERIAL shell 'am instrument -w -e mode daemon \
-  com.vivo.finevolumesteps.helper.test/roro.stellar.volumesteps.compatibility.AudioRouteInstrumentation' &
-# wait for logcat tag PVSRoute READY, then ~3 s for the main app to reconnect
-adb -s SERIAL shell am broadcast -a pvs.tests.ROUTE_VOLUME \
-  -p com.vivo.finevolumesteps.helper --ei stream 3 --ei value 50 --es token down1
-# result: logcat -s PVSRoute:I  RESULT token=.. before=.. requested=.. after=.. applied=..
+NDK_TOOLCHAIN=/path/to/ndk/toolchains/llvm/prebuilt/darwin-x86_64
+"$NDK_TOOLCHAIN/bin/aarch64-linux-android28-clang" tests/hid_volume.c -o /tmp/pvs-test-hid
+mkdir -p /tmp/pvs-preset-classes /tmp/pvs-preset-dex
+javac --release 8 -cp "$ANDROID_HOME/platforms/android-37.0/android.jar" \
+  -d /tmp/pvs-preset-classes tests/ShellVolumePreset.java
+"$ANDROID_HOME/build-tools/36.0.0/d8" --output /tmp/pvs-preset-dex \
+  /tmp/pvs-preset-classes/ShellVolumePreset.class
+python3 tests/screen_off_hid.py --serial SERIAL \
+  --keys /tmp/pvs-test-hid --preset-dex /tmp/pvs-preset-dex/classes.dex \
+  --steps 50 --output /tmp/pvs-raw
+# Repeat with --steps 64. Add --baseline when testing a specific actual origin.
+# Secure keyguard: --unlock-command 'python3 /path/to/private_unlock.py'
 ```
 
-Sequence for one case: disable Bluetooth and confirm `Devices: speaker`; set the
-baseline while unlocked; `input keyevent 223`; confirm `mWakefulness=Asleep`;
-broadcast a coarse jump; expect service events `native change inferred` and
-`companion result` to the anchored fine target, `overlay=attached=false`, and
-screen still Asleep. Wake and pattern-unlock between cases. At the end stop the
-daemon, force-stop the helper (main reconnects automatically), re-enable
-Bluetooth and uninstall the `.test` package. A secure pattern can be entered
-with `input motionevent DOWN/MOVE.../UP` through the 3x3 dot centers from the
-`lockPatternView` bounds; keep the PIN out of Git and logs.
+Install the same-signed development host and UI observer; start and authorize
+ADB Shizuku first.
+The harness temporarily enables the raw backend, disables conflicting Vivo
+volume-key shortcuts and restores settings, volume, accessibility and shortcuts
+in cleanup. On the tested Vivo, shell `settings put` silently leaves these
+values unchanged. The fixture snapshots the selected camera option, changes
+the native UI's inner long-press switch and camera selection, and verifies
+actual Settings readback before input and after restoration. Failure to apply
+or restore a setting fails the run. `tests/android_device.py` uses a
+non-suppressing UI dumper; ordinary
+UiAutomation can disconnect accessibility and invalidate delivery tests.
+The UI dumper's instrumentation component belongs to the host, but its target
+is the separate `roro.stellar.volumesteps.uitools` package. Targeting the player
+itself restarts that process when inspecting keyguard and stops playback.
+Keep the separate observer installed while using UI/private-unlock helpers.
+The HID fixture checks both main/player PID continuity and playback state
+after unlock and around bursts. Player starts use `FLAG_ACTIVITY_SINGLE_TOP`
+so a reused host task receives new playback extras through `onNewIntent`.
+The player requests and abandons audio focus.
+Check actual connected service state after every target-main instrumentation.
+Use an external private unlock command for secure keyguards; credentials never
+belong in test sources, reports or logs. Bluetooth remains connected when it
+was connected before testing. Compare route/range and capture built-in buttons
+separately.
 
 ## Passive installed-phone checks
 
@@ -203,7 +235,7 @@ and repeats rather than replacing a failed run. Use new JSON files from the
 runner or full emulator harness with matching tested APK hashes:
 
 ```sh
-python3 tests/write_report.py --version 1.4.12 \
+python3 tests/write_report.py --version 1.4.14 \
   --apk build/outputs/apk/release/precise-volume-steps-release.apk \
   --run /tmp/pvs-emulator/ACTUAL_RUN.json \
   --run /tmp/pvs-phone/ACTUAL_RUN.json \

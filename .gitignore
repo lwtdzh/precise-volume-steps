@@ -19,9 +19,11 @@ signing.properties
 keystore.properties
 # Keep the distributed APKs; exclude historical binaries and device captures.
 dist/*
+!dist/precise-volume-steps-1.4.14.apk
 !dist/precise-volume-steps-1.4.13.apk
 !dist/precise-volume-steps-1.4.12.apk
 !dist/precise-volume-steps-compatibility-helper-1.1.apk
 !dist/verification-1.4.13.md
+!dist/verification-1.4.14.md
 !dist/verification-1.4.12.md
 !dist/SHA256SUMS.txt

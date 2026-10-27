@@ -47,8 +47,10 @@ For vendor/startup/identity changes also read the
   display actual result on failure; never fabricate the target.
 - Origin-anchored cumulative rounding and exact reversal, including pending
   opposite keys and off-grid starts; no inserted history stops.
-- Key evidence plus native transition only; no passive playback/preset popup
-  or correction; no consumed/canceled/screenshot-key false positive.
+- Accessibility keys require a matching native transition. A fresh matched raw
+  volume release can authorize an off-screen media change without that transition.
+  Passive playback/presets never authorize writes; cancel power chords and
+  stale/unmatched raw input.
 - Bounded single writes, expected-current/expiry checks, stale-callback rejection.
 - Partial CPU wake lock only; hidden panel while off; key-up recovery requires
   recent matching evidence; no display wake.

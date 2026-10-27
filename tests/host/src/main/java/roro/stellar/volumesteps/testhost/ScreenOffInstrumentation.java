@@ -93,16 +93,11 @@ public final class ScreenOffInstrumentation extends Instrumentation {
             check("wake lock released after key", report().contains("key wake lock held=false"));
             check("display remains off after wake lock release", report().contains("screen interactive=false"));
 
-            // Firmware may route the hardware key straight to audio while the screen is
-            // off, delivering neither key-down nor key-up to accessibility. A single
-            // coarse native jump must still be recognized and corrected.
+            // Passive presets remain passive while asleep as well as awake.
             invoke(cancel);
             int interval = (int) Math.round((double) max / Math.min(max, steps));
             int origin = Math.min(max - interval - 1, expected + 2);
             int routed = origin - 1;
-            int inferredTarget = origin - interval;
-            // Establish the baseline while unlocked; passive changes must not be treated
-            // as keys there.
             shell("input keyevent 224");
             shell("wm dismiss-keyguard");
             Thread.sleep(800);
@@ -110,16 +105,37 @@ public final class ScreenOffInstrumentation extends Instrumentation {
             set(origin);
             Thread.sleep(400);
             invoke(cancel);
-            // Simulate firmware-only audio routing after the display sleeps.
             shell("input keyevent 223");
             Thread.sleep(600);
-            check("screen is off before routed jump", report().contains("screen interactive=false"));
+            check("screen is off before passive preset", report().contains("screen interactive=false"));
             set(routed);
-            check("screen-off routed coarse jump is inferred as a key",
-                    waitFor(inferredTarget));
-            check("inference recorded", report().contains("native change inferred"));
-            check("inferred correction keeps panel hidden", report().contains("overlay=attached=false"));
-            check("inferred correction does not wake display",
+            Thread.sleep(900);
+            check("screen-off preset remains unchanged", audio.getStreamVolume(3) == routed);
+            check("passive preset keeps panel hidden", report().contains("overlay=attached=false"));
+            check("passive preset does not wake display",
+                    report().contains("screen interactive=false"));
+
+            // A consumed accessibility key with no native change must expire.
+            // Only explicit raw input, tested separately, may handle suppressed keys.
+            shell("input keyevent 224");
+            shell("wm dismiss-keyguard");
+            Thread.sleep(800);
+            invoke(cancel);
+            int idleOrigin = origin;
+            set(idleOrigin);
+            Thread.sleep(400);
+            invoke(cancel);
+            shell("input keyevent 223");
+            Thread.sleep(600);
+            long idleDown = SystemClock.uptimeMillis();
+            invoke(key, new KeyEvent(idleDown, idleDown, 0, KeyEvent.KEYCODE_VOLUME_DOWN, 0));
+            invoke(key, new KeyEvent(idleDown, idleDown + 40, 1, KeyEvent.KEYCODE_VOLUME_DOWN, 0));
+            Thread.sleep(1000);
+            check("consumed screen-off accessibility key leaves volume unchanged",
+                    audio.getStreamVolume(3) == idleOrigin);
+            check("consumed screen-off key keeps panel hidden",
+                    report().contains("overlay=attached=false"));
+            check("consumed screen-off key keeps display off",
                     report().contains("screen interactive=false"));
 
             // The unlocked display must keep the strict key-only rule: the same
@@ -131,7 +147,7 @@ public final class ScreenOffInstrumentation extends Instrumentation {
             int unlocked = audio.getStreamVolume(3);
             set(Math.max(0, unlocked - 1));
             Thread.sleep(700);
-            check("unlocked external volume change is not inferred as a key",
+            check("unlocked external volume change remains unchanged",
                     audio.getStreamVolume(3) == Math.max(0, unlocked - 1));
 
             result.putString("diagnostics", report());
@@ -165,7 +181,10 @@ public final class ScreenOffInstrumentation extends Instrumentation {
         runOnMainSync(() -> audio.setStreamVolume(3, value, 0));
     }
     private boolean waitFor(int value) throws Exception {
-        long end = SystemClock.uptimeMillis() + 1500;
+        return waitFor(value, 1500);
+    }
+    private boolean waitFor(int value, long timeoutMs) throws Exception {
+        long end = SystemClock.uptimeMillis() + timeoutMs;
         while (SystemClock.uptimeMillis() < end) {
             if (audio.getStreamVolume(3) == value) return true;
             Thread.sleep(20);

@@ -22,6 +22,12 @@ final class VolumeStepHistory {
         confirmed = null;
     }
 
+    VolumeStepHistory copy() {
+        VolumeStepHistory snapshot = new VolumeStepHistory();
+        snapshot.confirmed = confirmed == null ? null : new Plan(confirmed);
+        return snapshot;
+    }
+
     static final class Plan {
         private final int min;
         private final int max;

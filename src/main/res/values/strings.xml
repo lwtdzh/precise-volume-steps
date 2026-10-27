@@ -64,14 +64,15 @@
     <string name="shizuku_setup">设置 Shizuku 连接</string>
     <string name="shizuku_connect">连接并授权</string>
     <string name="shizuku_disable">使用普通模式</string>
-    <string name="shizuku_help">部分手机会忽略普通应用在后台写入的音量，导致按键仍按系统默认阶数调节。\n\n此模式通过 Shizuku 的 ADB 权限修正音量；请在 Shizuku 授权弹窗中允许精准音量。只支持通过无线调试或电脑 ADB 启动的 Shizuku。音量按键仍由无障碍服务识别。\n\n手机重启后，需要重新启动 Shizuku。连接中断时会使用普通模式，系统可能再次忽略后台修正。应用页面会显示当前连接状态。</string>
+    <string name="shizuku_help">此模式通过 Shizuku 的 ADB 权限修正音量，并在锁屏或熄屏时直接监听专用设备的音量键和电源键。屏幕解锁后仍使用无障碍服务识别音量键。不会读取触摸坐标或文字按键。\n\n请先通过无线调试或电脑 ADB 启动 Shizuku，再授权精准音量。部分 vivo 系统会在熄屏时截获音量键；普通兼容助手只负责写入音量，这种情况需要 Shizuku 按键监听。\n\n系统的熄屏快捷功能仍可能响应音量键。请关闭与音量键冲突的熄屏快启、快捷拍照等设置。熄屏长按在松开后按重复次数或时长调节；通话期间由系统处理。\n\n手机重启后，需要重新启动 Shizuku。连接中断时会使用普通模式；被系统屏蔽的熄屏按键将无法识别。应用页面会显示当前连接状态。</string>
     <string name="shizuku_off">Shizuku 已关闭</string>
     <string name="shizuku_not_running">Shizuku 未运行 · 当前使用普通模式</string>
     <string name="shizuku_unsupported">请使用 ADB 或无线调试启动的 Shizuku（v11 及以上）</string>
     <string name="shizuku_permission_required">等待 Shizuku 授权 · 当前使用普通模式</string>
     <string name="shizuku_connecting">正在连接 Shizuku · 当前使用普通模式</string>
     <string name="shizuku_failed">Shizuku 音量连接失败 · 当前使用普通模式</string>
-    <string name="shizuku_ready">Shizuku 已连接 · 按键通过兼容模式修正</string>
+    <string name="shizuku_ready">Shizuku 已连接 · 熄屏按键监听已就绪</string>
+    <string name="shizuku_keys_unavailable">Shizuku 音量已连接 · 熄屏按键监听未就绪</string>
     <string name="shizuku_paused">音量服务未运行 · Shizuku 兼容模式已暂停</string>
     <string name="compatibility_ready">独立兼容助手已连接 · 可在后台修正，无需 Shizuku</string>
     <string name="compatibility_connecting">正在连接独立兼容助手</string>

@@ -21,4 +21,6 @@ include ':compatibility-helper'
 if (providers.gradleProperty('volumeStepsE2E').getOrElse('false') == 'true') {
     include ':precise-volume-steps-test-host'
     project(':precise-volume-steps-test-host').projectDir = file('tests/host')
+    include ':precise-volume-steps-test-ui'
+    project(':precise-volume-steps-test-ui').projectDir = file('tests/ui')
 }

@@ -26,12 +26,15 @@ final class VolumeAdjustmentController {
     private static final long KEY_TIMEOUT_MS = 700;
     private static final long WRITE_TIMEOUT_MS = 1000;
     private static final long POLL_MS = 250;
+    private static final long RAW_SETTLE_MS = 300;
 
     private final Context context;
     private final AudioManager audio;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final VolumeOverlayController overlay;
     private final ShizukuVolumeBridge shizuku;
+    private final ShizukuKeyBridge rawKeys;
+    private final RawVolumePress rawPress = new RawVolumePress();
     private final CompatibilityVolumeBridge compatibility;
     private final int[] observed = new int[12];
     private final int[] previousObserved = new int[12];
@@ -101,6 +104,8 @@ final class VolumeAdjustmentController {
         overlay = new VolumeOverlayController(context);
         shizuku = new ShizukuVolumeBridge(context, VolumeKeeperService::refreshNotification);
         compatibility = new CompatibilityVolumeBridge(context, VolumeKeeperService::refreshNotification);
+        rawKeys = new ShizukuKeyBridge(context, this::onRawKey,
+                VolumeKeeperService::refreshNotification);
         captureBaseline();
         IntentFilter filter = new IntentFilter("android.media.VOLUME_CHANGED_ACTION");
         try {
@@ -127,6 +132,9 @@ final class VolumeAdjustmentController {
         if (code != KeyEvent.KEYCODE_VOLUME_UP && code != KeyEvent.KEYCODE_VOLUME_DOWN) {
             return;
         }
+        // Raw input owns noninteractive presses when available. The firmware may
+        // also send accessibility callbacks for the same press.
+        if (nonInteractive() && rawKeys.ready()) return;
         lastKeyTime = SystemClock.uptimeMillis();
         lastKeyAction = event.getAction() == KeyEvent.ACTION_DOWN ? "down"
                 : event.getAction() == KeyEvent.ACTION_UP ? "up" : "other";
@@ -146,8 +154,68 @@ final class VolumeAdjustmentController {
         }
         lastDownTime = event.getDownTime();
         lastDownCode = code;
+        beginKey(direction, event.getRepeatCount(), event.getEventTime(), false);
+    }
+
+    private boolean nonInteractive() {
+        return !context.getSystemService(PowerManager.class).isInteractive()
+                || context.getSystemService(KeyguardManager.class).isKeyguardLocked();
+    }
+
+    private void onRawKey(String node, int code, int value, long time) {
+        if (closed || !VolumeStepSettings.isEnabled(context)) return;
+        long now = SystemClock.uptimeMillis();
+        record("raw input code=" + code + " value=" + value + " age ms=" + (now - time)
+                + " noninteractive=" + nonInteractive());
+        if (code == RawVolumeKeyParser.POWER) {
+            if (value == 1) {
+                rawPress.down(node, code, time, now, false);
+                if (gesture != null && gesture.raw) cancelPending();
+            } else if (value == 0) {
+                rawPress.up(node, code, time, now);
+            }
+            return;
+        }
+        boolean eligible = nonInteractive() && rawKeys.ready()
+                && audio.getMode() == AudioManager.MODE_NORMAL;
+        if (value == 1) {
+            if (!rawPress.down(node, code, time, now, eligible)) {
+                if (gesture != null && gesture.raw) cancelPending();
+                return;
+            }
+            lastKeyTime = now;
+            lastKeyAction = "raw down";
+            beginKey(code == RawVolumeKeyParser.UP ? 1 : -1, 0, time, true);
+            Gesture held = gesture;
+            handler.postDelayed(() -> {
+                if (gesture == held && held != null && held.raw && !held.released) {
+                    record("raw press expired without release");
+                    cancelPending();
+                }
+            }, 10000);
+        } else if (value == 2) {
+            rawPress.repeat(node, code);
+        } else if (value == 0) {
+            int count = rawPress.up(node, code, time, now);
+            Gesture active = gesture;
+            if (active == null || !active.raw) return;
+            if (count == 0 || !eligible) { cancelPending(); return; }
+            int direction = code == RawVolumeKeyParser.UP ? 1 : -1;
+            for (int n = 1; n < count; n++) active.directions.add(direction);
+            active.released = true;
+            active.lastPress = now;
+            lastKeyTime = now;
+            lastKeyAction = "raw up";
+            holdKeyWakeLock();
+            record("raw release direction=" + direction + " presses=" + count);
+            handler.removeCallbacks(detectKey);
+            handler.postDelayed(detectKey, DETECT_MS);
+        }
+    }
+
+    private void beginKey(int direction, int repeat, long eventTime, boolean raw) {
         holdKeyWakeLock();
-        record("key " + direction + " repeat=" + event.getRepeatCount());
+        record((raw ? "raw key " : "key ") + direction + " repeat=" + repeat);
         overlay.holdUpdates();
         shizuku.invalidate();
         compatibility.invalidate();
@@ -157,13 +225,23 @@ final class VolumeAdjustmentController {
                 // complete gesture from its original readback, not an intermediate value.
                 gesture = new Gesture(pendingCorrection.gesture.initial.clone());
                 gesture.directions.addAll(pendingCorrection.gesture.directions);
+                gesture.paths = pendingCorrection.gesture.paths;
                 gesture.stream = pendingCorrection.stream;
                 gesture.includesPending = true;
             } else {
                 gesture = new Gesture(snapshot());
+                if (raw) {
+                    for (int stream : STREAMS) {
+                        gesture.initial[stream] = RawVolumeBaseline.beforeKey(
+                                gesture.initial[stream], observed[stream], previousObserved[stream],
+                                changedAt[stream], eventTime, direction);
+                    }
+                }
             }
-            handler.postDelayed(detectKey, DETECT_MS);
+            if (!raw) handler.postDelayed(detectKey, DETECT_MS);
         }
+        gesture.raw = raw;
+        gesture.released = !raw;
         gesture.directions.add(direction);
         gesture.lastPress = SystemClock.uptimeMillis();
     }
@@ -218,6 +296,19 @@ final class VolumeAdjustmentController {
         if (active == null || closed) {
             return;
         }
+        if (active.raw && !active.released) return;
+        if (active.raw && (!rawKeys.ready() || !nonInteractive()
+                || audio.getMode() != AudioManager.MODE_NORMAL)) {
+            cancelPending();
+            return;
+        }
+        // Firmware can dispatch the native key after its release (Vivo's
+        // short/long-press policy delays it by 200 ms). Do not write a target
+        // that a still-pending native adjustment would immediately overwrite.
+        if (active.raw && SystemClock.uptimeMillis() - active.lastPress < RAW_SETTLE_MS) {
+            handler.postDelayed(detectKey, DETECT_MS);
+            return;
+        }
         int[] after = snapshot();
         for (int stream : STREAMS) {
             if (!inScope(stream)) {
@@ -241,25 +332,30 @@ final class VolumeAdjustmentController {
                 break;
             }
         }
-        long quiet = SystemClock.uptimeMillis() - active.lastPress;
+        long now = SystemClock.uptimeMillis();
+        long quiet = now - active.lastPress;
         if (active.stream < 0 || quiet < DETECT_MS
-                || SystemClock.uptimeMillis() - active.lastNativeChange < DETECT_MS) {
-            if (quiet < KEY_TIMEOUT_MS) {
-                handler.postDelayed(detectKey, DETECT_MS);
-            } else {
+                || now - active.lastNativeChange < DETECT_MS) {
+            if (active.raw && active.stream < 0 && quiet >= RAW_SETTLE_MS) {
+                applyRawIdleKey(active);
+                return;
+            }
+            if (quiet >= KEY_TIMEOUT_MS) {
                 record("key expired without native change");
                 gesture = null;
                 if (pendingCorrection == null) {
                     overlay.releaseUpdates();
                 }
+                return;
             }
+            handler.postDelayed(detectKey, DETECT_MS);
             return;
         }
         gesture = null;
         int stream = active.stream;
         // Start from an observed value. An unacknowledged previous target may
         // have been rejected by the system and must not become the next base.
-        plannedSteps = histories[stream].plan(active.initial[stream],
+        plannedSteps = active.paths[stream].plan(active.initial[stream],
                 audio.getStreamMinVolume(stream), audio.getStreamMaxVolume(stream),
                 VolumeStepSettings.steps(context), active.directions);
         plannedGesture = active;
@@ -300,68 +396,44 @@ final class VolumeAdjustmentController {
             // Playback, routing, presets and our own writes must not open UI
             // or cause another correction.
             if (gesture == null && pendingCorrection == null) {
-                if (inferLockedOffHardwareKey(stream, previous, current)) {
-                    beginInferredHardwareKey(stream, previous, current);
-                } else {
-                    histories[stream].clear();
-                    overlay.updateActual(stream, current, audio.getStreamMaxVolume(stream));
-                }
+                histories[stream].clear();
+                overlay.updateActual(stream, current, audio.getStreamMaxVolume(stream));
             }
         } catch (RuntimeException exception) {
             record("volume read failed: " + exception);
         }
     }
 
-    /**
-     * With the display off or the keyguard locked, some firmwares route hardware volume
-     * keys straight to the audio service. The native coarse jump still happens, but the
-     * key never carries the pass-to-user flag, so accessibility cannot authorize the
-     * correction. Treat a single hardware-sized media transition as key evidence in that
-     * state. The unlocked display keeps the strict key-only rule.
-     */
-    private boolean inferLockedOffHardwareKey(int stream, int before, int after) {
-        int delta = after - before;
-        if (delta == 0) {
-            return false;
+    /** Only a released raw key can adjust media when firmware made no change. */
+    private void applyRawIdleKey(Gesture active) {
+        int stream = AudioManager.STREAM_MUSIC;
+        if (!inScope(stream) || audio.getMode() != AudioManager.MODE_NORMAL
+                || !nonInteractive() || !rawKeys.ready()) {
+            record("raw idle key skipped stream=" + stream
+                    + " mode=" + audio.getMode() + " a2dp=" + audio.isBluetoothA2dpOn());
+            gesture = null;
+            if (pendingCorrection == null) {
+                overlay.releaseUpdates();
+            }
+            return;
         }
-        PowerManager power = context.getSystemService(PowerManager.class);
-        KeyguardManager keyguard = context.getSystemService(KeyguardManager.class);
-        if (power.isInteractive() && !keyguard.isKeyguardLocked()) {
-            return false;
+        int origin = active.initial[stream];
+        int current = audio.getStreamVolume(stream);
+        if (current != origin && (pendingCorrection == null
+                || pendingCorrection.stream != stream || current != pendingCorrection.target)) {
+            record("raw idle key discarded after external change");
+            cancelPending();
+            return;
         }
-        // A call or an active A2DP route changes which device the key controls; leave
-        // those transitions to the system.
-        if (audio.getMode() != AudioManager.MODE_NORMAL || audio.isBluetoothA2dpOn()) {
-            return false;
-        }
-        int min = audio.getStreamMinVolume(stream);
-        int max = audio.getStreamMaxVolume(stream);
-        if (before < min || before > max || after < min || after > max) {
-            return false;
-        }
-        int range = Math.max(1, max - min);
-        int coarseStep = Math.max(1, (range + 14) / 15);
-        // One or two hardware presses can land in the same 250 ms polling window.
-        return Math.abs(delta) <= coarseStep * 2;
-    }
-
-    private void beginInferredHardwareKey(int stream, int before, int after) {
-        long now = SystemClock.uptimeMillis();
-        holdKeyWakeLock();
-        overlay.holdUpdates();
-        shizuku.invalidate();
-        compatibility.invalidate();
-        Gesture g = new Gesture(snapshot());
-        g.initial[stream] = before;
-        g.stream = stream;
-        g.lastNativeValue = after;
-        g.lastNativeChange = now;
-        g.lastPress = now;
-        g.directions.add(Integer.signum(after - before));
-        gesture = g;
-        record("locked/off native change inferred direction=" + Integer.signum(after - before)
-                + " stream=" + stream + " " + before + " -> " + after);
-        handler.postDelayed(detectKey, DETECT_MS);
+        VolumeStepHistory.Plan plan = active.paths[stream].plan(origin,
+                audio.getStreamMinVolume(stream), audio.getStreamMaxVolume(stream),
+                VolumeStepSettings.steps(context), active.directions);
+        plannedSteps = plan;
+        plannedGesture = active;
+        gesture = null;
+        record("raw idle key adjust presses=" + active.directions.size()
+                + " stream=" + stream + " " + origin + " -> " + plan.target());
+        apply(stream, plan.target());
     }
 
     private void apply(int stream, int target) {
@@ -551,6 +623,7 @@ final class VolumeAdjustmentController {
         gesture = null;
         plannedSteps = null;
         plannedGesture = null;
+        rawPress.cancel();
         for (VolumeStepHistory history : histories) history.clear();
         pendingCorrection = null;
         handler.removeCallbacks(detectKey);
@@ -575,6 +648,7 @@ final class VolumeAdjustmentController {
         VolumeStepSettings.preferences(context).unregisterOnSharedPreferenceChangeListener(settingsListener);
         cancelPending();
         shizuku.close();
+        rawKeys.close();
         compatibility.close();
         if (keyWakeLock.isHeld()) keyWakeLock.release();
     }
@@ -584,11 +658,13 @@ final class VolumeAdjustmentController {
     }
 
     int shizukuStatus() {
+        if (shizuku.ready() && !rawKeys.ready()) return R.string.shizuku_keys_unavailable;
         return shizuku.status();
     }
 
     void connectShizuku() {
         shizuku.connect();
+        rawKeys.connect();
     }
 
     String diagnostics() {
@@ -608,6 +684,7 @@ final class VolumeAdjustmentController {
                 + "\nvolume polling interval ms=" + POLL_MS
                 + "\ncorrection requires key event=true"
                 + "\nShizuku=" + shizuku.diagnostics()
+                + "\nraw volume keys=" + rawKeys.diagnostics()
                 + "\ncompanion=" + compatibility.diagnostics()
                 + "\npending correction=" + (pendingCorrection == null ? "none"
                         : pendingCorrection.stream + ":" + pendingCorrection.target)
@@ -632,7 +709,7 @@ final class VolumeAdjustmentController {
         }
     }
 
-    private static class Gesture {
+    private class Gesture {
         final int[] initial;
         final ArrayList<Integer> directions = new ArrayList<>();
         long lastPress;
@@ -640,7 +717,13 @@ final class VolumeAdjustmentController {
         int lastNativeValue = -1;
         int stream = -1;
         boolean includesPending;
-        Gesture(int[] initial) { this.initial = initial; }
+        boolean raw;
+        boolean released;
+        VolumeStepHistory[] paths = new VolumeStepHistory[histories.length];
+        Gesture(int[] initial) {
+            this.initial = initial;
+            for (int i = 0; i < paths.length; i++) paths[i] = histories[i].copy();
+        }
     }
 
     private static final class Correction {

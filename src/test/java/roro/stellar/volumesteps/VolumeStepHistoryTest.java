@@ -6,6 +6,15 @@ import java.util.Arrays;
 import org.junit.Test;
 
 public final class VolumeStepHistoryTest {
+    @Test public void pendingGestureKeepsItsRoundedPathWhenAnOlderWriteConfirms() {
+        VolumeStepHistory history = new VolumeStepHistory();
+        history.confirm(history.plan(74, 0, 150, 64, Arrays.asList(1, 1)));
+        VolumeStepHistory pending = history.copy();
+        history.confirm(history.plan(79, 0, 150, 64, Arrays.asList(1)));
+        assertEquals(83, pending.plan(79, 0, 150, 64, Arrays.asList(1, 1)).target());
+        assertEquals(74, pending.plan(79, 0, 150, 64, Arrays.asList(-1, -1)).target());
+    }
+
     @Test public void reversesEveryNativeOriginOnUnevenGrids() {
         for (int max : new int[]{15, 50, 120, 150, 255}) {
             for (int steps : new int[]{7, 37, 50, 64, 100}) {

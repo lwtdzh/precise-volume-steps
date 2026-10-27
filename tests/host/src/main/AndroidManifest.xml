@@ -3,7 +3,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <instrumentation android:name=".DumpUiInstrumentation"
-        android:targetPackage="roro.stellar.volumesteps.testhost" />
+        android:targetPackage="roro.stellar.volumesteps.uitools" />
     <instrumentation android:name=".PollOnlyInstrumentation"
         android:targetPackage="roro.stellar.volumesteps" />
     <instrumentation android:name=".PhoneProbeInstrumentation"

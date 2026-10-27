@@ -21,9 +21,11 @@ a phone. Read the repository's
 3. The helper's **关联启动** permission permits its process to start. The main
    application's foreground keeper holds a provider connection and reconnects.
    This process-start condition is separate from accepting an audio write.
-4. Screen-off processing uses a bounded partial CPU wake lock and recovery from
-   a received key-up with a recent matching native change. Neither can create
-   key events suppressed by firmware.
+4. Screen-off processing can use explicitly enabled ADB Shizuku to read dedicated
+   volume/power devices. A fresh matched raw release authorizes a media write
+   even when firmware made no native change. Accessibility-only recovery still
+   requires a key-up and recent matching native change. A partial CPU wake lock
+   keeps only the bounded correction alive.
 5. Core rounding and panel displays use Android's native range. Universal volume
    math does not imply universal OEM background permissions.
 
