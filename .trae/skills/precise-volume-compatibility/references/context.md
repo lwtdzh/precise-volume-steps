@@ -299,6 +299,57 @@ by labels over multiple lines, while enabled services contain package/component
 IDs. Parse these separate fields and verify connectivity; searching for package
 names on one bound-service line produces a false failure.
 
+## Bluetooth volume indices and audible gain
+
+The app adjusts the current media-volume index, `STREAM_MUSIC = 3`, through
+`AudioManager.setStreamVolume`; Shizuku calls the corresponding
+`IAudioService.setStreamVolume`. Android persists output-specific values in
+`Settings.System`. Verified names on the Vivo are `volume_music_bt_a2dp`
+(Bluetooth A2DP), `volume_music_speaker` (speaker), and `volume_music`
+(base/default). Read current volume through AudioManager or the audio service:
+a saved value for another output is not the active route's current volume.
+The configured count is app-private SharedPreferences `volume_step_settings`,
+key `steps`. At native 0–150 and 50 configured intervals, a press selects an
+offset of 3 native units; the app does not alter the system's native maximum.
+
+The user reported equal audible intensity at 58%, 61% and 63% with Absolute
+Volume enabled. Android normally sends unattenuated audio plus a volume command
+in that mode, and the headset applies gain. Classic AVRCP expresses 0–127,
+but a headset can have fewer supported gain levels. Bluetooth SIG's low-
+resolution interoperability test includes a 50% command with a 40% reported
+headset setting. Ordinary 150→127 scaling distinguishes the reported percentage
+values, so the protocol's 127 maximum alone does not explain that plateau.
+Coarse headset/OEM gain mapping is plausible; ignored commands or small audible
+differences require separate investigation.
+
+Read-only diagnostics during this discussion showed the connected OPPO Enco X3
+with `AbsVol=false`. The enabled-state mapping and sound pressure were not
+captured. Do not record an OPPO plateau cause or an on/off audible pass from
+that snapshot. With Absolute Volume disabled, phone-side attenuation generally
+allows finer gain adjustments; distinct audible levels still depend on the
+phone's volume curve and headset processing.
+
+The AOSP developer-option property is `persist.bluetooth.disableabsvol`;
+`true` disables Absolute Volume. The app does not set it. Vivo's per-device
+preference location was not established, and an unset property does not prove
+that the active device uses Absolute Volume. Check AudioService support and the
+current device's AvrcpVolumeManager map after a connection change. If the usual
+Bluetooth dump is empty, the observed adapter supports:
+
+```sh
+adb -s SERIAL shell dumpsys activity service \
+  com.android.bluetooth/.btservice.AdapterService --print
+```
+
+Keep that full dump outside Git; it can list other paired devices and addresses.
+Capture outgoing commands, reported headset volume, constant audio and measured
+output when diagnosing an audible plateau. Keep phone readback and acoustic
+measurements separate.
+
+Sources: [Android Absolute Volume behavior](https://source.android.com/docs/core/connect/bluetooth/services#absolute-volume-control),
+[Bluetooth SIG test suite, Appendix B §7.1](https://files.bluetooth.com/wp-content/uploads/dlm_uploads/2025/02/AVRCP.TS_.p23.pdf?download=1#page=202),
+and [Bluetooth accessory volume guidance](https://learn.microsoft.com/en-us/windows-hardware/design/accessory-guidelines/bluetooth-accessory-guidelines/bluetooth-accessory-guidelines-classic-audio#volume-hands-free-profile-hfp--audiovideo-remote-control-profile-avrcp).
+
 ## Reversible universal spacing
 
 `VolumeStepHistory` is the production gesture planner;
