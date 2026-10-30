@@ -162,3 +162,67 @@ The new locked-screen external-HID fixture records real screen/keyguard state,
 idle/playback, exact readback and reversal, visible window type, later
 overwrites, passive presets and restoration for each selected mode.
 Built-in buttons and reboot remain separate requirements.
+
+## Lit-keyguard latency investigation after 1.5.1
+
+The locked raw-input path inherited the screen-off 300 ms release wait.
+Non-wireless/idle raw keys could therefore leave the native coarse value in
+place during that wait. Bluetooth playback already wrote at release, but
+confirmation and the panel still waited for the guard. A newer pending press
+also suppresses the preceding final panel.
+
+`applyRawAtRelease` now permits a fresh matched raw release on a genuinely lit,
+locked display to correct an observed matching transition immediately. A
+consumed raw key can use the media-only fallback with unchanged readback;
+all-stream mode still needs an observed transition to select the stream.
+The existing power-chord, source readiness, freshness, mode, expected-current,
+expiry and single late-write retry checks remain in force. Screen-off idle
+keys retain their previous settling delay.
+
+When AudioManager actually reads back the target on lit keyguard,
+`showSettlingReadback` can render that sample before the guard finishes.
+It uses the internal SETTLING state and freezes the third row at that actual sample;
+later coarse overwrites do not become panel frames. Final confirmation still
+waits for the original deadline. Neither a returned backend value nor a
+requested target alone authorizes this early frame.
+
+The user requested the same presentation as unlocked panels: SETTLING is quiet,
+while genuine PENDING and UNCONFIRMED states retain their existing feedback.
+Both PENDING and SETTLING freeze readback updates; clearing the text must not
+resume passive reads during the late-write guard. The layout keeps its reserved
+status-row height. Diagnostics include the actual status text, and the existing
+locked raw fixture checks a blank status while a forced late overwrite is pending.
+
+`LockedRawTimingInstrumentation` supplies synthetic matched callbacks to the
+real assistant Binder while the phone is actually locked. It measures release
+to readback and panel attachment, then checks a deliberately late coarse
+overwrite, consumed raw keys, pending reversal, passive presets and the unchanged
+screen-off path. These are controller/IPC timings, excluding physical-key
+delivery and helper polling. Window attachment alone does not establish
+visibility above keyguard; keep the external-HID visibility fixture and
+built-in physical-button recording separate.
+
+On Vivo V2419A/API 36, helper 1.4, native range 0–150 and 50 configured steps,
+the original 1.5.1 synthetic locked-idle run measured 348 ms from release to
+target readback and 381 ms to panel attachment. Final test-patch APK
+`2b94ea5d32b08fc3dcd52f4de66eba16cfc85b572448294bad47f09a9ec927fa`
+measured 14 ms and 44 ms respectively; its 16 assertions passed, including a
+forced late overwrite, consumed key, pending reversal and unchanged hidden
+screen-off idle behavior. Main unit tests passed 54/54; helper tests 3/3;
+final emulator frames/layout/screen-off/ordinary passed 13/56/16/17 assertions.
+Assistant synthetic backend suites passed 107 assertions at both 50 and 64 steps.
+Final assistant UHID locked idle/playback suites passed 52 assertions at both
+50 and 64 steps, including visible accessibility windows, exact reversal, later
+readback and restoration. These external simulated keys bypass the strict
+built-in helper parser and do not establish built-in physical latency.
+The attempted Shizuku backend suite could not connect because its server was
+not running; this is an unverified prerequisite, not a backend pass. Root was
+not rerun. The reported multi-second physical panel delay and built-in button
+latency still need a separate physical recording.
+
+The quiet-display follow-up APK
+`76aa85561470a8a1a94fb837ed25a08b59dab58861d468873a569a6a48be4781`
+passed all 17 locked raw assertions, including blank status during a deliberately
+late coarse overwrite. Main unit tests passed 54/54; emulator final-frame and
+layout checks passed 13/13 and 56/56. This follow-up changes panel state and text
+only; the earlier physical input and multi-second latency limitations remain.

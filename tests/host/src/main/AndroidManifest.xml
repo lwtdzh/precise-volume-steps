@@ -18,6 +18,8 @@
         android:targetPackage="roro.stellar.volumesteps" />
     <instrumentation android:name=".ScreenOffInstrumentation"
         android:targetPackage="roro.stellar.volumesteps" />
+    <instrumentation android:name=".LockedRawTimingInstrumentation"
+        android:targetPackage="roro.stellar.volumesteps" />
     <instrumentation android:name=".OrdinaryModeProbeInstrumentation"
         android:targetPackage="roro.stellar.volumesteps" />
     <instrumentation android:name=".CompatibilityGrantUiInstrumentation"

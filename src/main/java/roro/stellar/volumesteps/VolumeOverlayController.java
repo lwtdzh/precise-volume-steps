@@ -18,7 +18,13 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 
 final class VolumeOverlayController {
-    enum CorrectionState { PENDING, CONFIRMED, UNCONFIRMED }
+    enum CorrectionState {
+        PENDING, SETTLING, CONFIRMED, UNCONFIRMED;
+
+        boolean holdsReadback() {
+            return this == PENDING || this == SETTLING;
+        }
+    }
 
     private static final long DISMISS_DELAY_MS = 1200;
 
@@ -40,7 +46,7 @@ final class VolumeOverlayController {
     private final Runnable refreshSystem = new Runnable() {
         @Override public void run() {
             if (!attached) return;
-            if (!updatesHeld && correctionState != CorrectionState.PENDING) readSystemVolume();
+            if (!updatesHeld && !correctionState.holdsReadback()) readSystemVolume();
             handler.postDelayed(this, 100);
         }
     };
@@ -55,6 +61,7 @@ final class VolumeOverlayController {
     private int requestedVolume;
     private int requestedMaximum;
     private CorrectionState requestedState;
+    private int settlingReadback = -1;
     private String lastError;
     private int displayedStream = -1;
     private int displayedVolume = -1;
@@ -175,9 +182,11 @@ final class VolumeOverlayController {
                 service.getSystemService(AudioManager.class).getStreamMinVolume(stream), max, steps);
         String setting = service.getString(R.string.overlay_step_setting, level, steps);
         settingsView.setText(setting);
-        String status = state == CorrectionState.CONFIRMED ? ""
-                : service.getString(state == CorrectionState.PENDING
-                        ? R.string.overlay_correction_pending : R.string.overlay_correction_unconfirmed);
+        String status = switch (state) {
+            case PENDING -> service.getString(R.string.overlay_correction_pending);
+            case UNCONFIRMED -> service.getString(R.string.overlay_correction_unconfirmed);
+            case SETTLING, CONFIRMED -> "";
+        };
         statusView.setText(status);
         progressBar.setMax(100);
         progressBar.setProgress(percent, false);
@@ -190,7 +199,7 @@ final class VolumeOverlayController {
         );
         volumeDescription = description + "，" + setting
                 + (status.isEmpty() ? "" : "，" + status);
-        if (state != CorrectionState.PENDING) readSystemVolume();
+        if (!state.holdsReadback()) readSystemVolume();
     }
 
     private void readSystemVolume() {
@@ -222,7 +231,14 @@ final class VolumeOverlayController {
         handler.postDelayed(dismissRunnable, DISMISS_DELAY_MS);
     }
 
+    /** Display a real readback promptly, freezing it until the late-write guard finishes. */
+    void showSettlingReadback(int stream, int actual, int max) {
+        show(stream, actual, max, CorrectionState.SETTLING);
+        settlingReadback = actual;
+    }
+
     private void queueRender(int stream, int current, int max, CorrectionState state) {
+        settlingReadback = -1;
         requestedStream = stream;
         requestedVolume = current;
         requestedMaximum = max;
@@ -269,6 +285,15 @@ final class VolumeOverlayController {
             removePanel();
         }
         render(requestedStream, requestedVolume, requestedMaximum, requestedState);
+        if (settlingReadback >= 0) {
+            systemVolume = settlingReadback;
+            systemMaximum = requestedMaximum;
+            systemView.setText(service.getString(R.string.overlay_system_volume,
+                    systemVolume, systemMaximum));
+            systemView.setContentDescription(systemView.getText());
+            panel.setContentDescription(volumeDescription + "，" + systemView.getText());
+            settlingReadback = -1;
+        }
         attachRequested = false;
         if (!attached) {
             windowContext = owner;
@@ -334,6 +359,7 @@ final class VolumeOverlayController {
                 + ", displayed stream=" + displayedStream + ", displayed volume=" + displayedVolume
                 + ", system readback=" + systemVolume + "/" + systemMaximum
                 + ", correction state=" + correctionState
+                + ", status text=\"" + statusView.getText() + "\""
                 + ", render queued=" + renderQueued + ", updates held=" + updatesHeld;
     }
 

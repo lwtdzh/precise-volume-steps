@@ -110,6 +110,25 @@ health readback. External HID does not establish built-in physical delivery.
 Vivo may require observed installer acknowledgement taps; use the compatibility
 skill's device procedure. Do not interpret a hanging installer as completed.
 
+For locked raw-input latency, run the assistant-only synthetic callback fixture
+on the verified helper phone, with correction enabled, media-only scope and
+playback paused. It creates a real lit keyguard and restores native volume.
+It leaves a secured phone locked; use the authorized private unlock procedure
+and reconnect accessibility afterward. Keep the original failing APK run.
+
+```sh
+python3 tests/run_instrumentation.py --serial PHONE_SERIAL \
+  --suite locked-raw-timing \
+  --apk build/outputs/apk/release/precise-volume-steps-release.apk \
+  --host-apk tests/host/build/outputs/apk/debug/precise-volume-steps-test-host-debug.apk \
+  --output /tmp/pvs-locked-raw-timing
+```
+
+This verifies release/readback/panel-attachment timing with real helper IPC,
+late overwrites, consumed keys, pending reversal and unchanged off-screen
+settling. It does not measure built-in physical delivery or actual window
+visibility. Use `lockscreen_keys.py` and a separate physical recording for those.
+
 The runner parses test JSON and final instrumentation status, records installed
 main/host/helper APK hashes, Java fixture hash, before/after device snapshots,
 raw output and errors outside Git:

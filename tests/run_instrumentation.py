@@ -18,6 +18,7 @@ SUITES = {
     "layout": "OverlayStabilityInstrumentation",
     "screen-off": "ScreenOffInstrumentation",
     "modes": "OperatingModesInstrumentation",
+    "locked-raw-timing": "LockedRawTimingInstrumentation",
 }
 
 
@@ -98,7 +99,8 @@ def main():
         (output / (prefix + "-setup-failure.json")).write_text(json.dumps(report, indent=2))
         raise SystemExit("; ".join(mismatches))
     helper_digest = installed_hash("com.vivo.finevolumesteps.helper") if (
-        args.suite == "backend" and args.backend == "companion") else None
+        args.suite == "locked-raw-timing"
+        or args.suite == "backend" and args.backend == "companion") else None
     fixture = ROOT / "tests/host/src/main/java/roro/stellar/volumesteps/testhost" / (
         SUITES[args.suite] + ".java")
     fixture_digest = hashlib.sha256(fixture.read_bytes()).hexdigest()
@@ -132,6 +134,9 @@ def main():
             "results": tests, "success": success, "errors": errors,
             "before": before, "after": snapshot(),
         }
+        timing = re.findall(r"^INSTRUMENTATION_RESULT: timing=(.*)$", text, re.M)
+        if timing:
+            report["timing"] = json.loads(timing[-1])
         (output / (prefix + ".json")).write_text(
             json.dumps(report, ensure_ascii=False, indent=2))
     print(f"{sum(t.get('pass') is True for t in tests)}/{len(tests)} passed; success={success}")

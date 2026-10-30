@@ -21,6 +21,14 @@ final class RawCorrectionTiming {
                 initial, valueAtRelease, lastDirection));
     }
 
+    static boolean shouldApplyOnLitKeyguard(boolean interactive, boolean locked,
+                                            boolean matchedRelease, int initial,
+                                            int current, int direction) {
+        return interactive && locked && matchedRelease && initial >= 0 && current >= 0
+                && (direction == -1 || direction == 1)
+                && (current == initial || Integer.signum(current - initial) == direction);
+    }
+
     static boolean shouldApplyArmedMask(long now, long expiresAt,
                                         int origin, int current, int direction) {
         return expiresAt > now && expiresAt - now <= 500

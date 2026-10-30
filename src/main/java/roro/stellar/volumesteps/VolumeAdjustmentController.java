@@ -389,24 +389,33 @@ final class VolumeAdjustmentController {
         }
         active.maskPending = false;
         active.releaseSnapshot = snapshot();
-        if (applyRawBluetoothPlaybackAtRelease(active)) return;
+        if (applyRawAtRelease(active)) return;
         handler.removeCallbacks(detectKey);
         handler.postDelayed(detectKey, DETECT_MS);
     }
 
-    private boolean applyRawBluetoothPlaybackAtRelease(Gesture active) {
+    private boolean applyRawAtRelease(Gesture active) {
         if (!explicitInputReady(active) || !nonInteractive()
-                || audio.getMode() != AudioManager.MODE_NORMAL || !audio.isMusicActive()
-                || !isWirelessMediaRoute() || active.releaseSnapshot == null) {
+                || audio.getMode() != AudioManager.MODE_NORMAL || active.releaseSnapshot == null) {
             return false;
         }
+        boolean interactive = context.getSystemService(PowerManager.class).isInteractive();
+        boolean locked = context.getSystemService(KeyguardManager.class).isKeyguardLocked();
+        boolean bluetoothPlayback = audio.isMusicActive() && isWirelessMediaRoute();
         for (int stream : STREAMS) {
-            if (stream != AudioManager.STREAM_MUSIC || !inScope(stream)
-                    || !RawCorrectionTiming.shouldApplyAtRelease(
-                    true, true, true, active.nativeStepMasked,
-                    active.initial[stream],
-                    active.releaseSnapshot[stream],
-                    active.lastDirection)) {
+            if (!inScope(stream)) continue;
+            int initial = active.initial[stream];
+            int current = active.releaseSnapshot[stream];
+            boolean bluetooth = stream == AudioManager.STREAM_MUSIC && bluetoothPlayback
+                    && RawCorrectionTiming.shouldApplyAtRelease(
+                    true, true, true, active.nativeStepMasked, initial, current, active.lastDirection);
+            // A matched raw release is sufficient for suppressed media-only keys.
+            // In all-stream mode require an observed transition to identify the stream.
+            boolean litRelease = RawCorrectionTiming.shouldApplyOnLitKeyguard(
+                    interactive, locked, active.released, initial, current, active.lastDirection)
+                    && (current != initial || stream == AudioManager.STREAM_MUSIC
+                    && VolumeStepSettings.isMediaOnly(context));
+            if (!bluetooth && !litRelease) {
                 continue;
             }
             active.stream = stream;
@@ -419,7 +428,8 @@ final class VolumeAdjustmentController {
                     VolumeStepSettings.steps(context), active.directions);
             plannedGesture = active;
             gesture = null;
-            record("raw Bluetooth playback correction at release stream=" + stream
+            record((litRelease ? "raw lit keyguard" : "raw Bluetooth playback")
+                    + " correction at release stream=" + stream
                     + " native=" + active.releaseSnapshot[stream]
                     + " target=" + plannedSteps.target());
             apply(stream, plannedSteps.target());
@@ -941,6 +951,17 @@ final class VolumeAdjustmentController {
                 long now = SystemClock.uptimeMillis();
                 if (RawCorrectionTiming.shouldHoldConfirmation(
                         now, active.stabilizeUntil, gesture != null)) {
+                    if (!active.readbackShown
+                            && context.getSystemService(PowerManager.class).isInteractive()
+                            && context.getSystemService(KeyguardManager.class).isKeyguardLocked()) {
+                        // This is an actual readback, while the existing late-write
+                        // guard remains pending. Never render a requested target alone.
+                        overlay.showSettlingReadback(active.stream, current,
+                                audio.getStreamMaxVolume(active.stream));
+                        active.readbackShown = true;
+                        record("key panel readback while settling stream=" + active.stream
+                                + " value=" + current);
+                    }
                     handler.postDelayed(confirmWrite,
                             Math.min(DETECT_MS, active.stabilizeUntil - now));
                     return;
@@ -1195,6 +1216,7 @@ final class VolumeAdjustmentController {
         Gesture gesture;
         long stabilizeUntil;
         boolean stabilizationRetried;
+        boolean readbackShown;
         Correction(int stream, int target, long requestedAt) {
             this.stream = stream;
             this.target = target;
