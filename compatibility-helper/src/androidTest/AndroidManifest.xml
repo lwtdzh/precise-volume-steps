@@ -3,4 +3,10 @@
     <instrumentation
         android:name="roro.stellar.volumesteps.compatibility.AudioRouteInstrumentation"
         android:targetPackage="com.vivo.finevolumesteps.helper" />
+    <instrumentation
+        android:name="roro.stellar.volumesteps.compatibility.HelperInputAccessInstrumentation"
+        android:targetPackage="com.vivo.finevolumesteps.helper" />
+    <instrumentation
+        android:name="roro.stellar.volumesteps.compatibility.InputDumpInstrumentation"
+        android:targetPackage="com.vivo.finevolumesteps.helper" />
 </manifest>

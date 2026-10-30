@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rootable AOSP emulator tests. The delivered APK does not use root.
+"""Rootable AOSP emulator tests for the ordinary application path.
 
 Build with -PvolumeStepsE2E=true, compile native_keys.c using the NDK, then:
 python3 tests/e2e.py --serial emulator-5578 --keys /tmp/fvs-native-keys
@@ -10,6 +10,7 @@ own input/audio handling produce every volume change under test.
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
 import subprocess
@@ -65,7 +66,10 @@ class Suite:
             time.sleep(.5)
         if "INSTRUMENTATION_CODE: 0" not in result:
             raise RuntimeError(result)
-        xml = self.shell("cat", "/sdcard/Android/data/" + HOST + "/files/ui.xml")
+        path = re.search(r"INSTRUMENTATION_RESULT: path=(.*)", result)
+        if path is None:
+            raise RuntimeError("UI inspection did not return its output path")
+        xml = self.shell("cat", path.group(1))
         (self.output / (name + ".xml")).write_text(xml)
         return ET.fromstring(xml)
 
@@ -91,10 +95,15 @@ class Suite:
     def scroll_to(self, text=None, rid=None, cls=None):
         for _ in range(6):
             tree = self.ui()
-            node = self.find(tree, text, rid, cls)
-            _, top, _, bottom = map(int, re.findall(r"\d+", node.get("bounds")))
+            try:
+                node = self.find(tree, text, rid, cls)
+            except AssertionError:
+                node = None
             _, _, width, height = map(int, re.findall(r"\d+", tree[0].get("bounds")))
-            if 0 <= top < bottom <= height - 60:
+            top, bottom = height, height
+            if node is not None:
+                _, top, _, bottom = map(int, re.findall(r"-?\d+", node.get("bounds")))
+            if node is not None and 0 <= top < bottom <= height - 60:
                 return node
             x = round(width * .75)  # Keep the gesture away from the step picker.
             start, end = (round(height * .8), round(height * .35))
@@ -102,6 +111,17 @@ class Suite:
                 start, end = end, start
             self.shell("input", "swipe", x, start, x, end, 300)
         raise AssertionError("UI control did not become fully visible")
+
+    def guide_action(self, action):
+        self.launch()
+        self.tap(self.scroll_to(rid="id/permission_guide"))
+        self.tap(self.scroll_to(rid="id/" + action))
+
+    def select_scope(self, media_only):
+        self.launch()
+        self.tap(self.scroll_to(rid="id/advanced_settings"))
+        self.click(text="调节范围：")
+        self.click(text="仅媒体音量（推荐）" if media_only else "所有音量")
 
     def screenshot(self, name):
         p = subprocess.run(["adb", "-s", self.args.serial, "exec-out", "screencap", "-p"],
@@ -147,6 +167,7 @@ class Suite:
         self.adb("install", "-r", apk)
         self.apk_hash = hashlib.sha256(apk.read_bytes()).hexdigest()
         self.adb("install", "-r", ROOT / "tests/host/build/outputs/apk/debug/precise-volume-steps-test-host-debug.apk")
+        self.adb("install", "-r", ROOT / "tests/ui/build/outputs/apk/debug/precise-volume-steps-test-ui-debug.apk")
         self.shell("logcat", "-c")
 
     def permission_setup(self, deny=False):
@@ -156,17 +177,23 @@ class Suite:
         self.shell("cmd", "deviceidle", "whitelist", "-" + PKG)
         self.launch()
         tree = self.ui("clean-install")
+        self.check("clean install opens permission guide before correction is enabled",
+                   self.find(tree, rid="android:id/alertTitle").get("text") == "权限设置向导")
+        self.check("guide explains optional screen-off helper grant",
+                   any("未授权不会影响亮屏调节" in n.get("text", "")
+                       for n in tree.iter("node")))
+        self.tap(self.find(tree, rid="android:id/button2"))
+        tree = self.ui("clean-install-main")
         switch = self.find(tree, rid="id/enable_correction")
         self.check("clean install switch OFF", switch.get("checked") == "false")
-        status = self.find(tree, rid="id/background_status").get("text")
+        status = self.scroll_to(rid="id/background_status").get("text")
         self.check("clean install status agrees", "音量修正已关闭" in status, status)
-        self.check("AOSP has no vendor self-start page",
-                   any("无需额外自启动授权" in n.get("text", "") for n in tree.iter("node")))
-        self.tap(switch)
-        tree = self.ui("accessibility-explanation")
-        self.check("turning ON requests accessibility",
-                   self.find(tree, rid="android:id/alertTitle").get("text") == "开启音量按键服务")
-        self.tap(self.find(tree, rid="android:id/button1"))
+        self.launch()
+        self.click(rid="id/enable_correction")
+        tree = self.ui("enabled-awaiting-permissions")
+        self.check("turning ON remains available without helper DUMP",
+                   self.find(tree, rid="id/enable_correction").get("checked") == "true")
+        self.tap(self.scroll_to(rid="id/mode_setup"))
         tree = self.ui("accessibility-settings")
         if not any(n.get("class", "").endswith("Switch") for n in tree.iter("node")):
             # Android 13 details intent falls back to the installed-service list.
@@ -185,14 +212,31 @@ class Suite:
         self.tap(candidates[-1])
         self.shell("input", "keyevent", "KEYCODE_BACK")
         self.launch()
+        self.guide_action("guide_notification")
         tree = self.ui("notification-request")
         self.check(("denial: " if deny else "") + "runtime notification permission requested",
                    any("permissioncontroller" in n.get("package", "") for n in tree.iter("node")))
         self.tap(self.find(tree, rid="permission_deny_button" if deny else "permission_allow_button"))
+        if deny:
+            self.guide_action("guide_notification")
+            tree = self.ui("notification-second-denial")
+            denial = next(n for n in tree.iter("node")
+                          if "permission_deny" in n.get("resource-id", ""))
+            self.tap(denial)
+            self.guide_action("guide_notification")
+            activity = self.shell("dumpsys", "activity", "activities")
+            self.check("permanent notification denial opens app notification settings",
+                       "AppNotificationSettings" in activity
+                       or "APP_NOTIFICATION_SETTINGS" in activity)
+            self.shell("pm", "grant", PKG, "android.permission.POST_NOTIFICATIONS")
+            self.shell("input", "keyevent", "KEYCODE_BACK")
+            self.launch()
+        self.guide_action("guide_battery")
         tree = self.ui("battery-request")
-        self.check(("denial: " if deny else "") + "battery exemption requested automatically",
+        self.check(("denial: " if deny else "") + "battery exemption opens from guide action",
                    "IgnoreBatteryOptimizations" in self.shell("dumpsys", "activity", "activities"))
         self.tap(self.find(tree, rid="android:id/button1"))
+        self.guide_action("guide_overlay")
         tree = self.ui("overlay-permission")
         if not any(n.get("class", "").endswith("Switch")
                    or n.get("text") == "Allow display over other apps"
@@ -229,43 +273,46 @@ class Suite:
         self.launch()
         tree = self.ui("running-denied" if deny else "running")
         self.check("floating-window permission is granted",
-                   "悬浮窗已允许" in self.find(tree, rid="id/background_status").get("text"))
-        status = self.find(tree, rid="id/background_status").get("text")
+                   "悬浮窗已允许" in self.scroll_to(rid="id/background_status").get("text"))
+        status = self.scroll_to(rid="id/background_status").get("text")
+        self.launch()
+        tree = self.ui("running-master-switch")
         self.check(("denial: " if deny else "") + "ON switch and running status agree",
                    "后台音量修正运行中" in status
                    and self.find(tree, rid="id/enable_correction").get("checked") == "true", status)
         self.screenshot("running-denied" if deny else "running")
-        if deny:
-            self.click(rid="id/background_permissions")
-            tree = self.ui("notification-second-denial")
-            denial = next(n for n in tree.iter("node")
-                          if "permission_deny" in n.get("resource-id", ""))
-            self.tap(denial)
-            self.click(rid="id/background_permissions")
-            activity = self.shell("dumpsys", "activity", "activities")
-            self.check("permanent notification denial opens app notification settings",
-                       "AppNotificationSettings" in activity or "APP_NOTIFICATION_SETTINGS" in activity)
-            self.shell("pm", "grant", PKG, "android.permission.POST_NOTIFICATIONS")
-            self.shell("input", "keyevent", "KEYCODE_BACK")
-            self.launch()
-        self.click(rid="id/auto_start_settings")
+        self.guide_action("guide_auto_start")
         tree = self.ui("standard-self-start-explanation")
         self.check("self-start button explains standard Android boot recovery",
                    any("开机广播" in n.get("text", "") for n in tree.iter("node")))
         self.tap(self.find(tree, rid="android:id/button1"))
         if not deny:
             tree = self.ui()
-            picker = self.find(tree, cls="NumberPicker")
+            self.launch()
+            picker = self.scroll_to(cls="NumberPicker")
             self.tap(list(picker)[0])
             tree = self.ui("step-setting")
             self.check("in-app step picker changes persisted setting",
                        self.find(tree, rid="android:id/numberpicker_input").get("text") == "29")
 
+    def ensure_optional_phase_ready(self):
+        self.launch()
+        tree = self.ui("optional-phase-start")
+        title = next((node for node in tree.iter("node")
+                      if node.get("resource-id") == "android:id/alertTitle"), None)
+        if title is not None and title.get("text") == "权限设置向导":
+            self.tap(self.find(tree, rid="android:id/button2"))
+            tree = self.ui("optional-phase-main")
+        switch = self.find(tree, rid="id/enable_correction")
+        if switch.get("checked") != "true":
+            self.tap(switch)
+        self.check("optional phase enables correction through app UI", self.wait_running())
+
     def configure_steps(self, steps):
         self.launch()
         picker = self.scroll_to(cls="NumberPicker")
         tree = self.ui()
-        current = int(self.find(tree, rid="android:id/numberpicker_input").get("text"))
+        current = int(re.search(r"\d+", self.find(tree, rid="android:id/numberpicker_input").get("text")).group())
         decrement, increment = list(picker)[0], list(picker)[-1]
         for _ in range(abs(current - steps)):
             self.tap(decrement if current > steps else increment)
@@ -359,7 +406,7 @@ class Suite:
                                       and "pending correction=none" in r)
             self.check("next press starts from actual value after rejected write",
                        self.volume() == 6 and "pending correction=none" in report
-                       and "correction state=UNCONFIRMED" in report, report)
+                       and "correction state=CONFIRMED" in report, report)
             time.sleep(1.5)
         finally:
             self.shell("appops", "set", PKG, "AUDIO_MEDIA_VOLUME", previous_mode)
@@ -400,6 +447,27 @@ class Suite:
                 p for p in positions if p < value]
             value = (min(options) if key == "+" else max(options)) if options else value
         return value
+
+    def origin_expected(self, initial, sequence, minimum, maximum, steps=5):
+        intervals = max(1, min(steps, maximum - minimum))
+        cursor = 0
+
+        def target(position):
+            offset = math.floor(position * (maximum - minimum) / intervals + .5)
+            return max(minimum, min(maximum, initial + offset))
+
+        for key in sequence:
+            next_cursor = cursor + (1 if key == "+" else -1)
+            if target(next_cursor) != target(cursor):
+                cursor = next_cursor
+        return target(cursor)
+
+    def stream_range(self, stream):
+        text = self.shell("cmd", "media_session", "volume", "--stream", stream, "--get")
+        match = re.search(r"range \[(\d+)\.\.(\d+)\]", text)
+        if match is None:
+            raise AssertionError(f"Cannot read stream {stream} range: {text}")
+        return tuple(map(int, match.groups()))
 
     def audio_tests(self):
         self.configure_steps(5)
@@ -509,13 +577,17 @@ class Suite:
         self.shell("input", "keyevent", "KEYCODE_WAKEUP")
         self.shell("wm", "dismiss-keyguard")
         self.launch()
-        self.tap(self.scroll_to(text="全部可识别音频流"))
+        self.select_scope(False)
         self.launch(host=True, play=False, stream=2)
         self.baseline(1, stream=2)
-        self.keys("+")
-        self.check("all-stream scope corrects native ring volume", self.volume(2) == 3, self.volume(2))
+        self.keys("++")
+        ring_min, ring_max = self.stream_range(2)
+        expected_ring = self.origin_expected(1, "++", ring_min, ring_max)
+        self.check("all-stream scope corrects native ring volume",
+                   self.volume(2) == expected_ring,
+                   f"{self.volume(2)}, expected {expected_ring} in [{ring_min}..{ring_max}]")
         self.launch()
-        self.tap(self.scroll_to(text="仅媒体音量"))
+        self.select_scope(True)
         time.sleep(.5)
         settings = self.shell("cat", "/data/user_de/0/" + PKG
                               + "/shared_prefs/volume_step_settings.xml")
@@ -694,31 +766,43 @@ class Suite:
         self.check("monitor recovers after test instrumentation", self.wait_running())
 
     def playback_stride_tests(self):
-        self.check("native media range is 0–150", self.maximum == 150, self.maximum)
-        if self.maximum != 150:
-            raise AssertionError("Configure the test emulator's native range before this phase")
+        self.check("native media range supports playback stride tests",
+                   self.maximum >= 5, self.maximum)
+        native_stride = max(2, self.maximum // 15)
+        baseline = max(native_stride * 3, self.maximum // 5)
+        baseline = min(self.maximum - native_stride * 3, baseline)
+        if baseline <= 0:
+            raise AssertionError(f"Native range too small for playback stride test: {self.maximum}")
         self.configure_steps(30)
         for accessibility in (False, True):
             self.a11y(accessibility)
             self.check("monitor runs during playback stride tests", self.wait_running())
-            self.launch(host=True, native_stride=10, media_session=True)
+            self.launch(host=True, native_stride=native_stride, media_session=True)
             time.sleep(3.5)
             media = self.shell("dumpsys", "media_session")
             audio = self.shell("dumpsys", "audio")
             self.check("local MediaSession is actively playing",
-                       "Volume playback regression" in media and "state=PLAYING(3)" in media)
+                       "Volume playback regression" in media
+                       and "package=" + HOST in media
+                       and "active=true" in media
+                       and ("state=PLAYING(3)" in media
+                            or re.search(r"state=PlaybackState \{state=3\b", media)))
             self.check("AudioTrack is started during stride tests",
                        "state:started" in audio or "state=started" in audio)
             for sequence in ("+", "-", "+++", "---", "+-"):
-                self.baseline(30)
+                self.baseline(baseline)
                 self.keys(sequence)
                 popup = self.overlays()
                 time.sleep(.4)
                 actual = self.volume()
-                expected = self.expected(30, sequence, steps=30) if accessibility else (
-                        30 + 10 * (sequence.count("+") - sequence.count("-")))
-                self.check(f"playback stride 10 / accessibility {accessibility} / {sequence}",
-                           actual == expected, f"30 → {actual}, expected {expected}")
+                expected = self.expected(baseline, sequence, steps=30) if accessibility else (
+                        baseline + native_stride
+                        * (sequence.count("+") - sequence.count("-")))
+                self.check(
+                        f"playback stride {native_stride} / accessibility "
+                        f"{accessibility} / {sequence}",
+                        actual == expected,
+                        f"{baseline} → {actual}, expected {expected}")
                 if sequence == "+":
                     self.check(f"playback popup / accessibility {accessibility}",
                                bool(popup) == accessibility)
@@ -728,13 +812,21 @@ class Suite:
             time.sleep(3.5)
             self.check("playback stops before pause comparison",
                        "Volume playback regression" not in self.shell("dumpsys", "media_session"))
-            self.baseline(30)
+            self.baseline(baseline)
             self.keys("+")
             time.sleep(.4)
+            paused_expected = self.expected(
+                    baseline, "+", steps=30) if accessibility else baseline + 1
             self.check(f"paused stride 1 / accessibility {accessibility}",
-                       self.volume() == (35 if accessibility else 31), self.volume())
+                       self.volume() == paused_expected,
+                       f"{self.volume()}, expected {paused_expected}")
             time.sleep(1.3)
-            for preset in (75, 92, 93, 30):
+            presets = dict.fromkeys((
+                    self.maximum // 2,
+                    round(self.maximum * .61),
+                    round(self.maximum * .62),
+                    baseline))
+            for preset in presets:
                 self.shell("cmd", "media_session", "volume", "--stream", "3", "--set", preset)
                 time.sleep(.7)
                 self.check(f"external preset {preset} preserved / accessibility {accessibility}",
@@ -750,7 +842,7 @@ class Suite:
         self.launch()
         self.shell("input", "swipe", "540", "650", "540", "1600", "300")
         self.click(rid="id/enable_correction")
-        status = self.find(self.ui("disabled"), rid="id/background_status").get("text")
+        status = self.scroll_to(rid="id/background_status").get("text")
         self.check("OFF switch and stopped status agree", "音量修正已关闭" in status, status)
         self.check("disable stops foreground keeper", self.wait_stopped())
         self.launch(host=True)
@@ -786,7 +878,7 @@ class Suite:
         self.correction("correction with app task absent")
         self.a11y(False)
         self.launch()
-        status = self.find(self.ui("accessibility-revoked"), rid="id/background_status").get("text")
+        status = self.scroll_to(rid="id/background_status").get("text")
         self.check("volume monitor waits for key service after accessibility revocation",
                    "等待音量按键服务" in status and self.running(), status)
         self.launch(host=True)
@@ -853,6 +945,8 @@ def main():
     suite = Suite(args)
     try:
         suite.prepare()
+        if args.phase not in ("all", "setup"):
+            suite.ensure_optional_phase_ready()
         if args.phase in ("audio", "lifecycle", "poll", "rejected"):
             suite.a11y(False)
             suite.a11y(True)

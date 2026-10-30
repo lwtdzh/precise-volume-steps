@@ -8,4 +8,22 @@
     <item name="export_diagnostics" type="id" />
     <item name="shizuku_status" type="id" />
     <item name="shizuku_setup" type="id" />
+    <item name="permission_guide" type="id" />
+    <item name="guide_accessibility" type="id" />
+    <item name="guide_notification" type="id" />
+    <item name="guide_battery" type="id" />
+    <item name="guide_overlay" type="id" />
+    <item name="guide_auto_start" type="id" />
+    <item name="guide_background" type="id" />
+    <item name="guide_helper_grant" type="id" />
+    <item name="compatibility_grant" type="id" />
+    <item name="compatibility_copy_adb" type="id" />
+    <item name="compatibility_grant_shizuku" type="id" />
+    <item name="mode_assistant" type="id" />
+    <item name="mode_shizuku" type="id" />
+    <item name="mode_root" type="id" />
+    <item name="mode_setup" type="id" />
+    <item name="mode_help" type="id" />
+    <item name="install_helper" type="id" />
+    <item name="advanced_settings" type="id" />
 </resources>

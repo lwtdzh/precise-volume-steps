@@ -81,6 +81,7 @@ public final class VolumeKeeperService extends Service {
             running = true;
             startError = null;
             adjustmentController = new VolumeAdjustmentController(this);
+            refreshNotification();
         } catch (RuntimeException exception) {
             running = false;
             startError = exception.getClass().getSimpleName();
@@ -124,6 +125,9 @@ public final class VolumeKeeperService extends Service {
         writer.println("version=" + getPackageName());
         writer.println("enabled=" + VolumeStepSettings.isEnabled(this)
                 + ", steps=" + VolumeStepSettings.steps(this));
+        writer.println("last boot action=" + VolumeStepSettings.preferences(this)
+                .getString("last_boot_action", "none") + ", time="
+                + VolumeStepSettings.preferences(this).getLong("last_boot_time", 0));
         writer.println("accessibility connected=" + FineVolumeAccessibilityService.isConnected());
         writer.println(adjustmentController == null ? "monitor not running"
                 : adjustmentController.diagnostics());
@@ -159,9 +163,30 @@ public final class VolumeKeeperService extends Service {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
         String text = getString(R.string.background_notification_text, percent, steps, level);
+        boolean needsShizuku = VolumeStepSettings.isShizukuEnabled(this);
+        int status = adjustmentController == null ? R.string.shizuku_paused
+                : adjustmentController.shizukuStatus();
+        int companion = adjustmentController == null ? R.string.compatibility_paused
+                : adjustmentController.compatibilityStatus();
+        boolean missingKeys = needsShizuku && status != R.string.shizuku_ready
+                || VolumeStepSettings.mode(this) == OperatingMode.ASSISTANT
+                && CompatibilityVolumeBridge.supportedDevice()
+                && companion != R.string.compatibility_input_ready;
+        boolean needsRoot = VolumeStepSettings.mode(this) == OperatingMode.ROOT;
+        if (needsRoot) {
+            String rootStatus = adjustmentController == null ? "Root 尚未连接"
+                    : adjustmentController.rootStatus();
+            missingKeys = adjustmentController == null || !adjustmentController.rootInputReady();
+            if (missingKeys) text += "\n" + rootStatus;
+        }
+        if (missingKeys) {
+            if (!needsRoot) text += "\n" + getString(needsShizuku ? status : companion);
+        }
         return new Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_volume_notification)
-                .setContentTitle(getString(R.string.background_notification_title))
+                .setContentTitle(getString(missingKeys
+                        ? R.string.background_notification_keys_unavailable
+                        : R.string.background_notification_title))
                 .setContentText(text)
                 .setStyle(new Notification.BigTextStyle().bigText(text))
                 .setProgress(100, percent, false)

@@ -20,6 +20,7 @@ import org.json.JSONObject;
 /** Real selected helper IPC and system audio, synthetic keys, app backgrounded. */
 public final class ShizukuRegressionInstrumentation extends Instrumentation {
     private boolean companion;
+    private boolean root;
     private boolean screenOff;
     private boolean screenChanged;
     private int requestedSteps;
@@ -35,6 +36,7 @@ public final class ShizukuRegressionInstrumentation extends Instrumentation {
     @Override public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
         companion = arguments != null && "companion".equals(arguments.getString("backend"));
+        root = arguments != null && "root".equals(arguments.getString("backend"));
         screenOff = arguments != null && "true".equals(arguments.getString("screen_off"));
         requestedSteps = arguments == null ? 0 : Integer.parseInt(arguments.getString("steps", "0"));
         start();
@@ -45,11 +47,17 @@ public final class ShizukuRegressionInstrumentation extends Instrumentation {
         int saved = -1;
         SharedPreferences settings = null;
         int savedSteps = -1;
+        String savedMode = null;
+        boolean savedLegacy = false;
         try {
             Context target = getTargetContext();
             settings = target.createDeviceProtectedStorageContext()
                     .getSharedPreferences("volume_step_settings", 0);
             savedSteps = settings.getInt("steps", 30);
+            savedMode = settings.getString("operating_mode", null);
+            savedLegacy = settings.getBoolean("shizuku_enabled", false);
+            settings.edit().putString("operating_mode", root ? "ROOT" : companion ? "ASSISTANT" : "SHIZUKU")
+                    .putBoolean("shizuku_enabled", !root && !companion).commit();
             if (requestedSteps > 0) settings.edit().putInt("steps", requestedSteps).commit();
             audio = target.getSystemService(AudioManager.class);
             saved = volume();
@@ -62,18 +70,28 @@ public final class ShizukuRegressionInstrumentation extends Instrumentation {
             for (int i = 0; i < 100 && remote == null; i++) {
                 controller = get.invoke(null);
                 if (controller != null) {
-                    Field bridge = controller.getClass().getDeclaredField(companion ? "compatibility" : "shizuku");
+                    Field bridge = controller.getClass().getDeclaredField(root ? "root" : companion ? "compatibility" : "shizuku");
                     bridge.setAccessible(true);
                     Object connection = bridge.get(controller);
                     Field service = connection.getClass().getDeclaredField("remote");
                     service.setAccessible(true);
                     remote = service.get(connection);
+                    if (root && remote == null && i == 1) {
+                        Method setup = controller.getClass().getDeclaredMethod("setupRoot", java.util.function.Consumer.class);
+                        setup.setAccessible(true);
+                        Object active = controller;
+                        runOnMainSync(() -> {
+                            try { setup.invoke(active, (java.util.function.Consumer<String>) text -> {}); }
+                            catch (ReflectiveOperationException exception) { throw new IllegalStateException(exception); }
+                        });
+                    }
                 }
                 if (remote == null) Thread.sleep(100);
             }
             if (remote == null) throw new IllegalStateException("Selected volume helper not connected");
             adjust = loader.loadClass(companion
                     ? "roro.stellar.volumesteps.compatibility.IVolumeCompatibility"
+                        : root ? target.getPackageName() + ".IPrivilegedVolume"
                         : target.getPackageName() + ".IVolumeShell")
                     .getMethod("adjust", int.class, int.class, int.class, long.class);
             key = method("onKey", KeyEvent.class);
@@ -93,12 +111,47 @@ public final class ShizukuRegressionInstrumentation extends Instrumentation {
                     .getSharedPreferences("volume_step_settings", 0).getInt("steps", 30);
             int baseline = Math.max(3, Math.min(saved, max / 3));
             reset(baseline);
-            check("connected helper in background", report().contains("ready=true"));
+            check("connected helper in background", root
+                    ? remote != null : report().contains("ready=true"));
             if (companion) {
                 check("Shizuku disabled during companion checks",
                         report().contains("Shizuku=enabled=false, ready=false"));
                 check("ordinary companion ready",
                         report().contains("companion=supported=true, ready=true"));
+                boolean inputReady = false;
+                for (int n = 0; n < 50; n++) {
+                    String state = report();
+                    if (state.contains("input checked=true, available=true, registered=true")) {
+                        inputReady = true;
+                        break;
+                    }
+                    Thread.sleep(100);
+                }
+                check("assistant input refresh survives mode switch", inputReady);
+                Class<?> compatibility = loader.loadClass(
+                        "roro.stellar.volumesteps.compatibility.IVolumeCompatibility");
+                Method prewarm = compatibility.getMethod("setInputPrewarm", boolean.class);
+                Method inputActive = compatibility.getMethod("inputActive");
+                prewarm.invoke(remote, true);
+                boolean warm = false;
+                for (int n = 0; n < 50; n++) {
+                    if ((boolean) inputActive.invoke(remote)) {
+                        warm = true;
+                        break;
+                    }
+                    Thread.sleep(20);
+                }
+                check("assistant input prewarm starts while display is on", warm);
+                prewarm.invoke(remote, false);
+                boolean stopped = false;
+                for (int n = 0; n < 50; n++) {
+                    if (!(boolean) inputActive.invoke(remote)) {
+                        stopped = true;
+                        break;
+                    }
+                    Thread.sleep(20);
+                }
+                check("assistant input prewarm stops while display is on", stopped);
             }
             check("idle background does not open panel", quiet(1400));
             int stale = call(baseline - 1, baseline + 1, SystemClock.uptimeMillis() + 500);
@@ -120,7 +173,88 @@ public final class ShizukuRegressionInstrumentation extends Instrumentation {
             }
             reset(baseline);
             press(-1);
-            check("consumed key stays quiet", quiet(900) && volume() == baseline);
+            if (screenOff && companion) {
+                int ordinaryIdle = next(baseline, max, steps, -1);
+                check("screen-off ordinary consumed key adjusts without native change",
+                        waitFor(ordinaryIdle, 1200) && stable(ordinaryIdle, 300));
+                reset(baseline);
+                long idleUp = SystemClock.uptimeMillis();
+                invoke(key, new KeyEvent(idleUp - 40, idleUp,
+                        KeyEvent.ACTION_UP, KeyEvent.KEYCODE_VOLUME_UP, 0));
+                check("screen-off ordinary idle key-up-only adjusts",
+                        waitFor(next(baseline, max, steps, 1), 1200));
+                check("ordinary idle key-up-only keeps screen off",
+                        report().contains("screen interactive=false"));
+            } else {
+                check("consumed key stays quiet", quiet(900) && volume() == baseline);
+            }
+            Method observe = method("observe", int.class, String.class);
+            if (screenOff && companion) {
+                reset(baseline);
+                press(1);
+                for (int n = 1; n <= 7; n++) {
+                    Thread.sleep(50);
+                    int before = volume();
+                    int lateNative = Math.min(max, baseline + n * 10);
+                    call(lateNative, before, SystemClock.uptimeMillis() + 500);
+                    invoke(observe, 3, "late physical native repeat");
+                }
+                int corrected = next(baseline, max, steps, 1);
+                check("screen-off ordinary waits for physical native repeats",
+                        waitFor(corrected, 1600) && stable(corrected, 500));
+            }
+            for (int direction : new int[]{1, -1}) {
+                reset(baseline);
+                long eventTime = SystemClock.uptimeMillis();
+                Thread.sleep(5);
+                int coarse = Math.max(0, Math.min(max,
+                        baseline + direction * (Math.max(1, max / steps) + 2)));
+                check("delayed callback native transition " + direction,
+                        call(coarse, baseline, SystemClock.uptimeMillis() + 500) == coarse);
+                invoke(observe, 3, "test observation");
+                Thread.sleep(60);
+                int code = direction > 0 ? KeyEvent.KEYCODE_VOLUME_UP : KeyEvent.KEYCODE_VOLUME_DOWN;
+                invoke(key, new KeyEvent(eventTime, eventTime, KeyEvent.ACTION_DOWN, code, 0));
+                invoke(key, new KeyEvent(eventTime, SystemClock.uptimeMillis(),
+                        KeyEvent.ACTION_UP, code, 0));
+                int corrected = next(baseline, max, steps, direction);
+                check("background delayed accessibility callback corrected " + direction,
+                        waitFor(corrected, 1000) && stable(corrected, 1100));
+            }
+            reset(baseline);
+            int index = 0;
+            for (int position : new int[]{1, 2, 3, 2, 1, 0}) {
+                int direction = index++ < 3 ? 1 : -1;
+                int before = volume();
+                long eventTime = SystemClock.uptimeMillis();
+                Thread.sleep(5);
+                int coarse = Math.max(0, Math.min(max, before + direction * 10));
+                check("delayed continuation native transition " + index,
+                        call(coarse, before, SystemClock.uptimeMillis() + 500) == coarse);
+                invoke(observe, 3, "test observation");
+                Thread.sleep(60);
+                int code = direction > 0 ? KeyEvent.KEYCODE_VOLUME_UP : KeyEvent.KEYCODE_VOLUME_DOWN;
+                invoke(key, new KeyEvent(eventTime, eventTime, KeyEvent.ACTION_DOWN, code, 0));
+                invoke(key, new KeyEvent(eventTime, SystemClock.uptimeMillis(),
+                        KeyEvent.ACTION_UP, code, 0));
+                check("delayed continuation retains rounded position " + position,
+                        waitFor(target(baseline, max, steps, position), 1000)
+                        && stable(target(baseline, max, steps, position), 250));
+            }
+            reset(baseline);
+            int passive = baseline + 1;
+            call(passive, baseline, SystemClock.uptimeMillis() + 500);
+            invoke(observe, 3, "test observation");
+            Thread.sleep(5);
+            press(1);
+            if (screenOff && companion) {
+                check("screen-off ordinary key continues from passive preset",
+                        waitFor(next(passive, max, steps, 1), 1200));
+            } else {
+                check("passive preset before consumed key is preserved",
+                        quiet(1100) && volume() == passive);
+            }
+            reset(baseline);
             for (int n = 0; n < 20; n++) {
                 int before = volume();
                 int direction = n % 2 == 0 ? 1 : -1;
@@ -214,6 +348,12 @@ public final class ShizukuRegressionInstrumentation extends Instrumentation {
             }
             if (settings != null && requestedSteps > 0 && savedSteps >= 0) {
                 settings.edit().putInt("steps", savedSteps).commit();
+            }
+            if (settings != null) {
+                SharedPreferences.Editor edit = settings.edit().putBoolean("shizuku_enabled", savedLegacy);
+                if (savedMode == null) edit.remove("operating_mode");
+                else edit.putString("operating_mode", savedMode);
+                edit.commit();
             }
         }
         result.putString("tests", tests.toString());

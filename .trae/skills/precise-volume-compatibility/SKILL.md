@@ -10,6 +10,12 @@ changing a backend, startup path, key handling, or volume calculation.
 Read [installation and diagnosis](references/device-procedure.md) before touching
 a phone. Read the repository's
 [regression skill](../precise-volume-regression/SKILL.md) before verification.
+For failures after restart, also read
+[reboot and screen-off findings](references/reboot-screen-off.md).
+For ordinary-mode failures, read
+[ordinary screen-off findings](references/ordinary-screen-off.md).
+For mode selection, optional Root or bundled installation, read
+[three-mode implementation](references/three-modes.md).
 
 ## Preserve these distinctions
 
@@ -28,6 +34,13 @@ a phone. Read the repository's
    keeps only the bounded correction alive.
 5. Core rounding and panel displays use Android's native range. Universal volume
    math does not imply universal OEM background permissions.
+6. Helper 1.2 can read exact built-in EventHub key state after a one-time DUMP
+   grant on the verified Vivo firmware. Keep its input registration separate
+   from helper audio-write readiness. Older helpers and missing grants still
+   cannot replace a selected Shizuku raw reader.
+7. When the user requires ordinary mode with the helper, keep Shizuku disabled
+   throughout that verification. Shizuku recovery and status improvements do
+   not satisfy ordinary screen-off playback or idle requirements.
 
 Keep the raw callback's 250 ms freshness limit separate from the 300 ms wait
 after release before correction. A fresh callback can still precede a delayed
@@ -35,7 +48,16 @@ native write. Check both orderings in the
 [screen-off cases](../precise-volume-regression/references/screen-off-cases.md).
 Use the preceding real sample when native audio policy changed volume before
 the raw snapshot; retain the observed value when a passive preset preceded
-the key. Never classify a passive native jump alone as a key.
+the key. Raw and accessibility callback paths must not classify a passive jump
+alone as a key. The Vivo ordinary-playback compatibility path is a documented
+exception: while truly noninteractive, with active playback, a ready helper,
+normal audio mode and a non-wireless route, it accepts only the firmware's
+one- or two-step coarse media transition. Keep its external-preset ambiguity
+visible and verify it separately from explicit key delivery.
+For a delayed accessibility callback, recover only an already-observed matching
+transition after the original KeyEvent time, within 250 ms, with unchanged
+current readback. Exclude the app's preceding write confirmation. Keep the raw
+reader's unobserved-change fallback out of accessibility handling.
 
 ## Work procedure
 
@@ -54,8 +76,12 @@ the key. Never classify a passive native jump alone as a key.
   Preserve signature permission, explicit UID/signature checks, supported-stream
   validation, native clamping, expected-current checks, expiry and cancellation.
 - Avoid unbounded retries of uncertain writes and suppress obsolete callbacks.
-  Never acquire root, add an invisible activity, or wake the display to make
-  ordinary background volume writes seem successful.
+  Assistant and Shizuku production paths must remain independent of Root.
+  The user-requested optional Root mode is documented in `three-modes.md`.
+  When root is provided only for diagnosis, limit it to evidence collection or bounded reversible input,
+  restore every system mutation, and keep the resulting behavior separate from
+  ordinary-app qualification. Never add an invisible activity or wake the
+  display to make ordinary background volume writes seem successful.
 - Record evidence, exact firmware, limitations and new tests in references.
   Update the human setup instructions if another APK or permission is needed.
 - Test the actual phone using the regression matrix. Verify physical screen-off,

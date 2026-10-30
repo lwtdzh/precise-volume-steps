@@ -17,6 +17,7 @@ SUITES = {
     "frames": "FinalPanelInstrumentation",
     "layout": "OverlayStabilityInstrumentation",
     "screen-off": "ScreenOffInstrumentation",
+    "modes": "OperatingModesInstrumentation",
 }
 
 
@@ -34,11 +35,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--serial", required=True)
     parser.add_argument("--suite", choices=SUITES, required=True)
-    parser.add_argument("--backend", choices=["companion", "shizuku"], default="shizuku")
+    parser.add_argument("--backend", choices=["companion", "shizuku", "root"], default="shizuku")
+    parser.add_argument("--apk", type=Path, help="Require installed main to match this APK")
+    parser.add_argument("--host-apk", type=Path, help="Require installed host to match this APK")
     parser.add_argument("--steps", type=int)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
-    if args.suite in ("frames", "screen-off") and not args.serial.startswith("emulator-"):
+    if args.suite in ("frames", "screen-off", "modes") and not args.serial.startswith("emulator-"):
         parser.error("Rejection/frame and screen-off fixtures are disposable-emulator only")
     if args.steps is not None and not 5 <= args.steps <= 150:
         parser.error("steps must be between 5 and 150")
@@ -74,12 +77,31 @@ def main():
         return result
 
     before = snapshot()
-    installed = adb("shell", "pm", "path", PACKAGE).strip().splitlines()
-    path = next((line.removeprefix("package:") for line in installed
-                 if line.endswith("/base.apk")), None)
-    if not path:
-        raise SystemExit("Main APK is not installed")
-    digest = hashlib.sha256(adb("exec-out", "cat", path, binary=True)).hexdigest()
+    def installed_hash(package):
+        installed = adb("shell", "pm", "path", package).strip().splitlines()
+        path = next((line.removeprefix("package:") for line in installed
+                     if line.endswith("/base.apk")), None)
+        if not path:
+            raise SystemExit(f"{package} is not installed")
+        return hashlib.sha256(adb("exec-out", "cat", path, binary=True)).hexdigest()
+
+    digest = installed_hash(PACKAGE)
+    host_digest = installed_hash(HOST)
+    mismatches = []
+    for name, path, installed in (("main", args.apk, digest),
+                                  ("host", args.host_apk, host_digest)):
+        if path and hashlib.sha256(path.read_bytes()).hexdigest() != installed:
+            mismatches.append(f"Installed {name} APK does not match {path}")
+    if mismatches:
+        report = {"serial": args.serial, "success": False, "errors": mismatches,
+                  "before": before, "apk_sha256": digest, "host_apk_sha256": host_digest}
+        (output / (prefix + "-setup-failure.json")).write_text(json.dumps(report, indent=2))
+        raise SystemExit("; ".join(mismatches))
+    helper_digest = installed_hash("com.vivo.finevolumesteps.helper") if (
+        args.suite == "backend" and args.backend == "companion") else None
+    fixture = ROOT / "tests/host/src/main/java/roro/stellar/volumesteps/testhost" / (
+        SUITES[args.suite] + ".java")
+    fixture_digest = hashlib.sha256(fixture.read_bytes()).hexdigest()
     command = ["adb", "-s", args.serial, "shell", "am", "instrument", "-w"]
     if args.suite == "backend":
         command += ["-e", "backend", args.backend]
@@ -103,6 +125,8 @@ def main():
         report = {
             "serial": args.serial, "api": before.get("api"),
             "apk_sha256": digest, "suite": args.suite,
+            "host_apk_sha256": host_digest, "helper_apk_sha256": helper_digest,
+            "fixture_sha256": fixture_digest,
             "backend": args.backend if args.suite == "backend" else None,
             "steps": args.steps, "input": "synthetic controller callbacks; actual Android audio/IPC",
             "results": tests, "success": success, "errors": errors,

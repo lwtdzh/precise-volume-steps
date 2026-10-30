@@ -3,6 +3,7 @@ package roro.stellar.volumesteps;
 import android.os.IBinder;
 import android.os.Process;
 import android.os.RemoteException;
+import android.os.SystemClock;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -17,7 +18,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** A separate shell service leaves the existing volume-write backend untouched. */
+/** Dedicated raw-input service with a key-triggered, pre-armed Bluetooth mask. */
 public final class VolumeKeyShellService extends IVolumeKeyShell.Stub {
     private final ExecutorService discovery = Executors.newSingleThreadExecutor();
     private final ScheduledExecutorService deadlines = Executors.newSingleThreadScheduledExecutor();
@@ -27,10 +28,27 @@ public final class VolumeKeyShellService extends IVolumeKeyShell.Stub {
     private volatile IVolumeKeyListener listener;
     private volatile boolean closed;
     private volatile java.lang.Process metadataProcess;
+    private final VolumeShellService volume;
+    private volatile int bluetoothMaskOrigin = -1;
+    private volatile long bluetoothMaskExpiresAt;
     private final IBinder.DeathRecipient died = this::stop;
 
     public VolumeKeyShellService() {
-        if (Process.myUid() != 2000) throw new SecurityException("ADB-started Shizuku required");
+        this(false);
+    }
+
+    VolumeKeyShellService(boolean root) {
+        this(root, null);
+    }
+
+    VolumeKeyShellService(boolean root, VolumeShellService existingVolume) {
+        if (Process.myUid() != (root ? 0 : 2000))
+            throw new SecurityException("Unexpected input service UID");
+        try {
+            volume = existingVolume == null ? new VolumeShellService(root) : existingVolume;
+        } catch (ReflectiveOperationException exception) {
+            throw new IllegalStateException(exception);
+        }
     }
 
     @Override public synchronized void listen(IVolumeKeyListener value) throws RemoteException {
@@ -61,6 +79,18 @@ public final class VolumeKeyShellService extends IVolumeKeyShell.Stub {
         } else {
             scanAgain = true;
         }
+    }
+
+    @Override public synchronized void armBluetoothMask(int origin, long expiresAt) {
+        long remaining = expiresAt - SystemClock.uptimeMillis();
+        if (origin < 0 || remaining <= 0 || remaining > 500
+                || !volume.armBluetooth(origin, expiresAt)) {
+            bluetoothMaskOrigin = -1;
+            bluetoothMaskExpiresAt = 0;
+            return;
+        }
+        bluetoothMaskOrigin = origin;
+        bluetoothMaskExpiresAt = expiresAt;
     }
 
     private void discover() {
@@ -94,7 +124,8 @@ public final class VolumeKeyShellService extends IVolumeKeyShell.Stub {
                 });
                 for (String node : nodes) {
                     if (readers.containsKey(node)) continue;
-                    java.lang.Process reader = new ProcessBuilder("/system/bin/getevent", "-lt", node)
+                    java.lang.Process reader = new ProcessBuilder(
+                            "/system/bin/getevent", "-lt", node)
                             .redirectErrorStream(true).start();
                     readers.put(node, reader);
                     new Thread(() -> read(node, reader), "volume-key-reader").start();
@@ -121,7 +152,8 @@ public final class VolumeKeyShellService extends IVolumeKeyShell.Stub {
                     status(0, "volume input format not recognized");
                 }
                 if (event != null && sink != null) {
-                    sink.onKey(node, event.code(), event.value(), event.time());
+                    int maskedOrigin = maskBluetoothAtKey(event);
+                    sink.onKey(node, event.code(), event.value(), event.time(), maskedOrigin);
                 }
             }
         } catch (IOException | RemoteException ignored) {
@@ -137,6 +169,21 @@ public final class VolumeKeyShellService extends IVolumeKeyShell.Stub {
         }
     }
 
+    private int maskBluetoothAtKey(RawVolumeKeyParser.Event event) {
+        if (event.value() != 1
+                || (event.code() != RawVolumeKeyParser.UP
+                && event.code() != RawVolumeKeyParser.DOWN)) {
+            return -1;
+        }
+        int origin = bluetoothMaskOrigin;
+        long expiresAt = bluetoothMaskExpiresAt;
+        if (origin < 0) return -3;
+        if (SystemClock.uptimeMillis() >= expiresAt) return -4;
+        int direction = event.code() == RawVolumeKeyParser.UP ? 1 : -1;
+        int result = volume.maskBluetooth(origin, direction, expiresAt);
+        return result;
+    }
+
     private void status(int devices, String error) {
         IVolumeKeyListener sink = listener;
         if (sink != null && !closed) {
@@ -144,11 +191,13 @@ public final class VolumeKeyShellService extends IVolumeKeyShell.Stub {
         }
     }
 
-    private synchronized void stop() {
+    synchronized void stop() {
         closed = true;
         if (metadataProcess != null) metadataProcess.destroy();
         for (java.lang.Process reader : readers.values()) reader.destroy();
         readers.clear();
+        bluetoothMaskOrigin = -1;
+        bluetoothMaskExpiresAt = 0;
         if (listener != null) listener.asBinder().unlinkToDeath(died, 0);
         listener = null;
         discovery.shutdownNow();

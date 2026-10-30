@@ -4,8 +4,8 @@
 
 The project began as the independent `volume-steps` module inside
 `yuehong-privilege-assistant`. It was renamed to `precise-volume-steps` on
-2026-10-26. The app is now `精准音量` / Precise Volume Steps, main version 1.4.14,
-code 26; helper version 1.1, code 2. It is a standalone Gradle project with
+2026-10-26. The app is now `精准音量` / Precise Volume Steps, main version 1.4.15,
+code 27; helper version 1.1, code 2. It is a standalone Gradle project with
 root app sources in `src/`, a `compatibility-helper` application and optional
 `tests/host` and `tests/ui` applications. Do not introduce the enclosing app's
 Root, firmware or exploit modules into this project.
@@ -123,6 +123,11 @@ require no such Shizuku grant. Never promise non-root Shizuku survives reboot.
 
 ## Startup and background process
 
+For the 2026-10-28 post-reboot report, unavailable Shizuku raw input and the
+helper status that hid it, read [reboot screen-off findings](reboot-screen-off.md).
+The user's setting remained 50. Main/helper startup and screen-off key-reader
+startup must be reported separately.
+
 `BootReceiver` handles BOOT_COMPLETED, LOCKED_BOOT_COMPLETED, USER_UNLOCKED and
 MY_PACKAGE_REPLACED. It records action/time in device-protected preferences and
 starts the keeper only when enabled. The keeper is a special-use foreground
@@ -164,7 +169,7 @@ Eight emulator checks passed with actual power state/audio but synthetic
 controller callbacks. They verify full-key correction, missing-down recovery,
 hidden panel, no display wake and wake-lock expiry.
 
-### 1.4.13: historical native-jump inference, removed in 1.4.14
+### 1.4.13: native-jump inference, removed in 1.4.14 and restored narrowly later
 
 Automated ADB diagnosis on the V2419A separated two layers:
 
@@ -205,7 +210,15 @@ The user's idle repro (81%, five down presses asleep, wake and one down:
 expected 69%, observed 79%) showed that a native-jump heuristic cannot handle
 keys that firmware drops before audio. The heuristic was also unsafe: an
 external slider or route change of the same size could authorize a write.
-It has been removed. Passive volume changes only update real observations.
+It was removed in 1.4.14. The final 1.4.15 ordinary-mode work later restored a
+narrower playback-only form after reproducing 1.4.13's simulated playback
+correction. That simulation does not reproduce the user's reported physical
+success before reboot; the task-start package record identifies 1.4.14. It
+requires a ready Vivo helper, a truly noninteractive display, active playback,
+normal audio mode, a non-wireless route and a one- or two-step coarse media
+transition. Idle uses delivered accessibility callbacks instead. A programmatic
+coarse preset with the same shape remains observationally ambiguous; see
+[ordinary screen-off findings](ordinary-screen-off.md).
 
 `VolumeKeyShellService`, `IVolumeKeyShell`, `IVolumeKeyListener` and
 `ShizukuKeyBridge` form a separate optional read-only backend. Existing

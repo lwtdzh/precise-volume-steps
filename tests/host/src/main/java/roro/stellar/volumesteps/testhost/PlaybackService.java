@@ -16,6 +16,7 @@ import android.os.IBinder;
 
 public final class PlaybackService extends Service {
     private volatile boolean playing;
+    private volatile int toneAmplitude = 1;
     private AudioTrack track;
     private MediaSession session;
     private AudioFocusRequest focus;
@@ -52,13 +53,24 @@ public final class PlaybackService extends Service {
         playing = true;
         track.play();
         new Thread(() -> {
-            byte[] silence = new byte[4096];
+            byte[] pcm = new byte[4096];
+            double phase = 0;
+            double phaseStep = 2 * Math.PI * 440 / 16000;
             while (playing) {
-                if (track.write(silence, 0, silence.length) < 0) break;
+                int amplitude = toneAmplitude;
+                for (int offset = 0; offset < pcm.length; offset += 2) {
+                    short sample = (short) Math.round(Math.sin(phase) * amplitude);
+                    pcm[offset] = (byte) sample;
+                    pcm[offset + 1] = (byte) (sample >> 8);
+                    phase += phaseStep;
+                    if (phase >= 2 * Math.PI) phase -= 2 * Math.PI;
+                }
+                if (track.write(pcm, 0, pcm.length) < 0) break;
             }
         }, "silent-playback").start();
     }
     @Override public int onStartCommand(Intent intent, int flags, int id) {
+        toneAmplitude = intent != null && intent.getBooleanExtra("tone", false) ? 2048 : 1;
         if (intent != null && intent.getBooleanExtra("media_session", false) && session == null) {
             session = new MediaSession(this, "Volume playback regression");
             session.setPlaybackToLocal(new AudioAttributes.Builder()

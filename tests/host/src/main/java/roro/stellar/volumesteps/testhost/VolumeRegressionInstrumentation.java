@@ -21,6 +21,7 @@ public final class VolumeRegressionInstrumentation extends Instrumentation {
     private Method onKey;
     private Method diagnostics;
     private Method cancel;
+    private Method observe;
     private AudioManager audio;
     private final JSONArray results = new JSONArray();
 
@@ -55,9 +56,11 @@ public final class VolumeRegressionInstrumentation extends Instrumentation {
             onKey = controller.getClass().getDeclaredMethod("onKey", KeyEvent.class);
             diagnostics = controller.getClass().getDeclaredMethod("diagnostics");
             cancel = controller.getClass().getDeclaredMethod("cancelPending");
+            observe = controller.getClass().getDeclaredMethod("observe", int.class, String.class);
             onKey.setAccessible(true);
             diagnostics.setAccessible(true);
             cancel.setAccessible(true);
+            observe.setAccessible(true);
             int max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
             int steps = target.createDeviceProtectedStorageContext()
                     .getSharedPreferences("volume_step_settings", Context.MODE_PRIVATE).getInt("steps", 30);
@@ -105,9 +108,72 @@ public final class VolumeRegressionInstrumentation extends Instrumentation {
             key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_VOLUME_DOWN, 0);
             set(Math.max(0, volume() - 10));
             key(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_VOLUME_DOWN, 0);
-            int twice = next(next(baseline, max, steps, -1), max, steps, -1);
+            int twice = Math.max(0, baseline + Math.round(-2f * max / Math.min(max, steps)));
             check("two synthetic presses while device writes may be pending",
                     waitFor(twice, 1600) && stable(twice, 1100), report());
+
+            // The native change can be observed before accessibility dispatches
+            // the original KeyEvent. Use real reads, with the event's original time.
+            for (int direction : new int[]{-1, 1}) {
+                reset(baseline);
+                int code = direction > 0 ? KeyEvent.KEYCODE_VOLUME_UP : KeyEvent.KEYCODE_VOLUME_DOWN;
+                long eventTime = SystemClock.uptimeMillis();
+                Thread.sleep(5);
+                int coarse = Math.max(0, Math.min(max,
+                        baseline + direction * (Math.max(1, max / steps) + 2)));
+                set(coarse);
+                invoke(observe, AudioManager.STREAM_MUSIC, "test observation");
+                Thread.sleep(60);
+                invoke(onKey, new KeyEvent(eventTime, eventTime, KeyEvent.ACTION_DOWN, code, 0));
+                invoke(onKey, new KeyEvent(eventTime, SystemClock.uptimeMillis(),
+                        KeyEvent.ACTION_UP, code, 0));
+                int expected = next(baseline, max, steps, direction);
+                check("ordinary delayed callback rebases observed native change " + direction,
+                        waitFor(expected, 1400) && stable(expected, 1100), report());
+            }
+
+            reset(baseline);
+            int passive = Math.max(0, baseline - 2);
+            set(passive);
+            invoke(observe, AudioManager.STREAM_MUSIC, "test observation");
+            Thread.sleep(5);
+            key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_VOLUME_DOWN, 0);
+            key(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_VOLUME_DOWN, 0);
+            check("preset before key is retained when key makes no native change",
+                    noPanelFor(1100) && volume() == passive, report());
+
+            reset(baseline);
+            // A direct read differing from the last observation is insufficient
+            // for accessibility baseline recovery: the change might be a preset.
+            runOnMainSync(() -> {
+                audio.setStreamVolume(AudioManager.STREAM_MUSIC, passive, 0);
+                long now = SystemClock.uptimeMillis();
+                try {
+                    onKey.invoke(controller, new KeyEvent(now, now, KeyEvent.ACTION_DOWN,
+                            KeyEvent.KEYCODE_VOLUME_DOWN, 0));
+                    onKey.invoke(controller, new KeyEvent(now, now, KeyEvent.ACTION_UP,
+                            KeyEvent.KEYCODE_VOLUME_DOWN, 0));
+                } catch (Exception error) {
+                    throw new IllegalStateException(error);
+                }
+            });
+            check("unobserved preset does not authorize a consumed accessibility key",
+                    noPanelFor(1100) && volume() == passive, report());
+
+            reset(baseline);
+            key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_VOLUME_DOWN, 0);
+            set(Math.max(0, baseline - 10));
+            long delayedConsumedTime = SystemClock.uptimeMillis();
+            key(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_VOLUME_DOWN, 0);
+            int confirmed = next(baseline, max, steps, -1);
+            if (!waitFor(confirmed, 1400)) throw new IllegalStateException("Initial write did not confirm");
+            Thread.sleep(80);
+            invoke(onKey, new KeyEvent(delayedConsumedTime, delayedConsumedTime,
+                    KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_VOLUME_DOWN, 0));
+            invoke(onKey, new KeyEvent(delayedConsumedTime, SystemClock.uptimeMillis(),
+                    KeyEvent.ACTION_UP, KeyEvent.KEYCODE_VOLUME_DOWN, 0));
+            check("own confirmation is not native evidence for a delayed consumed key",
+                    stable(confirmed, 1200), report());
             result.putString("diagnostics", report());
             result.putString("tests", results.toString());
             result.putString("input", "synthetic controller callbacks; real AudioManager");
@@ -203,12 +269,6 @@ public final class VolumeRegressionInstrumentation extends Instrumentation {
 
     private static int next(int value, int max, int steps, int direction) {
         int intervals = Math.min(max, steps);
-        int result = direction > 0 ? max : 0;
-        for (int i = 0; i <= intervals; i++) {
-            int point = Math.round((float) i * max / intervals);
-            if (direction > 0 && point > value) result = Math.min(result, point);
-            if (direction < 0 && point < value) result = Math.max(result, point);
-        }
-        return result;
+        return Math.max(0, Math.min(max, value + Math.round((float) direction * max / intervals)));
     }
 }

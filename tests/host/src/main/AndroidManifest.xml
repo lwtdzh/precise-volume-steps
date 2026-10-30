@@ -20,6 +20,12 @@
         android:targetPackage="roro.stellar.volumesteps" />
     <instrumentation android:name=".OrdinaryModeProbeInstrumentation"
         android:targetPackage="roro.stellar.volumesteps" />
+    <instrumentation android:name=".CompatibilityGrantUiInstrumentation"
+        android:targetPackage="roro.stellar.volumesteps" />
+    <instrumentation android:name=".MediaSessionInstrumentation"
+        android:targetPackage="roro.stellar.volumesteps.testhost" />
+    <instrumentation android:name=".OperatingModesInstrumentation"
+        android:targetPackage="roro.stellar.volumesteps" />
     <application android:label="Volume test host"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity android:name=".HostActivity" android:exported="true" />

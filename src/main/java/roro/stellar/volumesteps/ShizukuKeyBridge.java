@@ -13,7 +13,9 @@ import rikka.shizuku.Shizuku;
 
 /** Optional read-only connection, selected by the existing Shizuku setup action. */
 final class ShizukuKeyBridge {
-    interface Callback { void onKey(String node, int code, int value, long time); }
+    interface Callback {
+        void onKey(String node, int code, int value, long time, int maskedOrigin);
+    }
     private final Context context;
     private final Callback callback;
     private final Runnable changed;
@@ -41,11 +43,12 @@ final class ShizukuKeyBridge {
             long token = ++generation;
             try {
                 remote.listen(new IVolumeKeyListener.Stub() {
-                    @Override public void onKey(String node, int code, int value, long time) {
+                    @Override public void onKey(String node, int code, int value, long time,
+                                                int maskedOrigin) {
                         handler.post(() -> {
                             if (!closed && generation == token
                                     && VolumeStepSettings.isShizukuEnabled(context)) {
-                                callback.onKey(node, code, value, time);
+                                callback.onKey(node, code, value, time, maskedOrigin);
                             }
                         });
                     }
@@ -101,6 +104,14 @@ final class ShizukuKeyBridge {
     private void rescan() {
         if (remote != null && !closed) {
             try { remote.rescan(); } catch (RemoteException | RuntimeException exception) { binderDied(); }
+        }
+    }
+
+    void armBluetoothMask(int origin, long expiresAt) {
+        IVolumeKeyShell service = remote;
+        if (service != null && !closed) {
+            try { service.armBluetoothMask(origin, expiresAt); }
+            catch (RemoteException | RuntimeException exception) { binderDied(); }
         }
     }
 

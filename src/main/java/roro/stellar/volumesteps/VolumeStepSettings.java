@@ -57,10 +57,21 @@ final class VolumeStepSettings {
     }
 
     static boolean isShizukuEnabled(Context context) {
-        return preferences(context).getBoolean("shizuku_enabled", false);
+        return mode(context) == OperatingMode.SHIZUKU;
     }
 
     static void setShizukuEnabled(Context context, boolean enabled) {
-        preferences(context).edit().putBoolean("shizuku_enabled", enabled).apply();
+        setMode(context, enabled ? OperatingMode.SHIZUKU : OperatingMode.ASSISTANT);
+    }
+
+    static OperatingMode mode(Context context) {
+        SharedPreferences prefs = preferences(context);
+        return OperatingMode.stored(prefs.getString("operating_mode", null),
+                prefs.getBoolean("shizuku_enabled", false));
+    }
+
+    static void setMode(Context context, OperatingMode mode) {
+        preferences(context).edit().putString("operating_mode", mode.name())
+                .putBoolean("shizuku_enabled", mode == OperatingMode.SHIZUKU).apply();
     }
 }

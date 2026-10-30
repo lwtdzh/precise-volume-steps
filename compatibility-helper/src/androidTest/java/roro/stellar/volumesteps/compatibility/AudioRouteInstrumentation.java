@@ -63,6 +63,8 @@ public final class AudioRouteInstrumentation extends Instrumentation {
         return new int[]{before, safe, audio.getStreamVolume(stream)};
     }
 
+    // API 33+ uses the explicit flag below; the older overload is only for API 28-32.
+    @android.annotation.SuppressLint("UnspecifiedRegisterReceiverFlag")
     private void startDaemon() {
         Context context = getTargetContext();
         AudioManager audio = context.getSystemService(AudioManager.class);

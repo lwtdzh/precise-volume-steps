@@ -1,5 +1,9 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- Optional screen-off input needs one user-authorized ADB grant. -->
+    <uses-permission android:name="android.permission.DUMP"
+        tools:ignore="ProtectedPermissions" />
     <permission android:name="roro.stellar.volumesteps.permission.ADJUST_COMPATIBILITY_VOLUME"
         android:protectionLevel="signature" />
     <queries>

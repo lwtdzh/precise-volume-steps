@@ -7,7 +7,7 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 
-/* Emulator-only physical input source. Never installed in the application. */
+/* Emulator-only kernel input simulation. Never installed in the application. */
 static void event(int fd, int code, int value) {
     struct input_event e = {0};
     e.type = EV_KEY;

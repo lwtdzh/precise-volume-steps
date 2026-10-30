@@ -9,6 +9,13 @@ Read [build and automated suites](references/commands.md) and
 [the physical-phone feedback matrix](references/phone-matrix.md).
 For raw input, playback fixtures or interrupted phone tests, also read
 [screen-off regression cases and follow-ups](references/screen-off-cases.md).
+For reboot failures, preserve the untouched missing-server state before
+restarting Shizuku; use the added recovery and built-in-button recorder cases.
+For ordinary-mode feedback, keep Shizuku disabled. Helper 1.2's separately
+reported DUMP input is ordinary mode, not Shizuku raw input; record its exact
+availability/registration and preserve the one-time grant.
+Record idle and actual-player playback separately; passing synthetic helper
+writes or a Shizuku rerun cannot qualify ordinary screen-off buttons.
 For vendor/startup/identity changes also read the
 [device compatibility skill](../precise-volume-compatibility/SKILL.md).
 
@@ -20,9 +27,10 @@ For vendor/startup/identity changes also read the
 2. Build main and helper from the same source and signing key. Run release unit
    tests and lint. Compile the test host only for development. Use the standalone
    commands in the reference; no enclosing workspace is needed.
-3. Run the frame/readback/layout/screen-off suites on a disposable emulator.
-   Use real Android volume/power/IPC, not a mock alone. Do not run destructive
-   emulator setup, AppOp rejection or screen-off fixtures on a personal phone.
+3. Run the first-launch permission guide, frame/readback/layout/screen-off suites
+   on a disposable emulator. Use real Android volume/power/IPC, not a mock alone.
+   Do not run destructive emulator setup, AppOp rejection or screen-off fixtures
+   on a personal phone.
 4. Run backend instrumentation on the target phone using even and uneven step
    counts. Check every `pass` and final instrumentation/error status, not just
    `adb`'s exit code. Use `tests/run_instrumentation.py` to retain results and APK
@@ -64,8 +72,10 @@ task or an unchanged main PID alone does not establish that playback continued.
   opposite keys and off-grid starts; no inserted history stops.
 - Accessibility keys require a matching native transition. A fresh matched raw
   volume release can authorize an off-screen media change without that transition.
-  Passive playback/presets never authorize writes; cancel power chords and
-  stale/unmatched raw input.
+  The Vivo ordinary-playback fallback may accept only its narrowly guarded
+  coarse transition while the display is off; record the known ambiguity with
+  an external preset of the same shape. Other passive changes never authorize
+  writes. Cancel power chords and stale/unmatched raw input.
 - Bounded single writes, expected-current/expiry checks, stale-callback rejection.
 - Partial CPU wake lock only; hidden panel while off; key-up recovery requires
   recent matching evidence; no display wake.

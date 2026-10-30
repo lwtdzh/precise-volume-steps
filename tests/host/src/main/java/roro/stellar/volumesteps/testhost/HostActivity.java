@@ -33,7 +33,8 @@ public final class HostActivity extends Activity {
         status.setText(consume ? "Other app consumes volume keys" : "Silent media playback");
         if (intent.getBooleanExtra("play", true)) {
             startForegroundService(new Intent(this, PlaybackService.class)
-                    .putExtra("media_session", intent.getBooleanExtra("media_session", false)));
+                    .putExtra("media_session", intent.getBooleanExtra("media_session", false))
+                    .putExtra("tone", intent.getBooleanExtra("tone", false)));
         } else {
             stopService(new Intent(this, PlaybackService.class));
         }

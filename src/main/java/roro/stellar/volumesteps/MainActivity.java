@@ -5,6 +5,8 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.NotificationManager;
 import android.content.ComponentName;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
@@ -26,6 +28,7 @@ import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.Switch;
 import android.widget.TextView;
+import android.widget.Toast;
 import rikka.shizuku.Shizuku;
 
 public final class MainActivity extends Activity {
@@ -33,6 +36,7 @@ public final class MainActivity extends Activity {
     private static final int REQUEST_BATTERY = 11;
     private static final int REQUEST_OVERLAY = 12;
     private static final int REQUEST_SHIZUKU = 13;
+    private static final int REQUEST_SHIZUKU_COMPATIBILITY_GRANT = 14;
     private static final int COLOR_BACKGROUND = Color.rgb(247, 249, 247);
     private static final int COLOR_TEXT = Color.rgb(28, 30, 29);
     private static final int COLOR_SECONDARY = Color.rgb(85, 92, 88);
@@ -42,14 +46,38 @@ public final class MainActivity extends Activity {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TextView serviceStatus;
-    private TextView autoStartStatus;
     private TextView backgroundStatus;
-    private Button backgroundPermissionButton;
     private TextView currentVolume;
     private TextView shizukuStatus;
+    private Button compatibilityGrantButton;
     private AudioManager audioManager;
+    private CompatibilityGrantBridge compatibilityGrant;
+    private SetupShellBridge setupShell;
+    private LinearLayout selectedModeContent;
+    private TextView modeHelp;
+    private boolean appSetupPermissionPending;
     private boolean permissionRequestInFlight;
-    private boolean accessibilityPromptShown;
+    private boolean compatibilityGrantPermissionPending;
+    private final Shizuku.OnRequestPermissionResultListener compatibilityGrantPermission =
+            (requestCode, grantResult) -> {
+                if (requestCode == REQUEST_SHIZUKU && appSetupPermissionPending) {
+                    appSetupPermissionPending = false;
+                    if (grantResult == PackageManager.PERMISSION_GRANTED
+                            && VolumeStepSettings.mode(this) == OperatingMode.SHIZUKU)
+                        setupShizukuPermissions();
+                    return;
+                }
+                if (requestCode != REQUEST_SHIZUKU_COMPATIBILITY_GRANT
+                        || !compatibilityGrantPermissionPending) {
+                    return;
+                }
+                compatibilityGrantPermissionPending = false;
+                if (grantResult == PackageManager.PERMISSION_GRANTED) {
+                    grantCompatibilityWithAuthorizedShizuku();
+                } else {
+                    showCompatibilityGrantMessage(R.string.compatibility_grant_permission_denied);
+                }
+            };
 
     private final Runnable volumeRefresh = new Runnable() {
         @Override
@@ -66,6 +94,9 @@ public final class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         audioManager = getSystemService(AudioManager.class);
+        compatibilityGrant = new CompatibilityGrantBridge(this);
+        setupShell = new SetupShellBridge(this);
+        Shizuku.addRequestPermissionResultListener(compatibilityGrantPermission, handler);
         configureSystemBars();
         setContentView(createContent());
     }
@@ -78,7 +109,7 @@ public final class MainActivity extends Activity {
         refreshBackgroundStatus();
         handler.removeCallbacks(volumeRefresh);
         handler.post(volumeRefresh);
-        continuePermissionSetup();
+        handler.post(this::showFirstLaunchPermissionGuide);
     }
 
     @Override
@@ -87,199 +118,232 @@ public final class MainActivity extends Activity {
         super.onPause();
     }
 
-    private View createContent() {
-        ScrollView scrollView = new ScrollView(this);
-        scrollView.setFillViewport(true);
-        scrollView.setBackgroundColor(COLOR_BACKGROUND);
+    @Override protected void onDestroy() {
+        Shizuku.removeRequestPermissionResultListener(compatibilityGrantPermission);
+        compatibilityGrant.close();
+        setupShell.close();
+        super.onDestroy();
+    }
 
+    private View createContent() {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setBackgroundColor(COLOR_BACKGROUND);
+        scroll.setOnApplyWindowInsetsListener((view, insets) -> {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                android.graphics.Insets bars = insets.getInsets(
+                        android.view.WindowInsets.Type.systemBars()
+                                | android.view.WindowInsets.Type.displayCutout());
+                view.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+            } else {
+                view.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
+                        insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
+            }
+            return insets;
+        });
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(24), dp(28), dp(24), dp(28));
-        scrollView.addView(content, new ScrollView.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-        ));
-
+        content.setPadding(dp(20), dp(24), dp(20), dp(28));
+        scroll.addView(content, new ScrollView.LayoutParams(-1, -2));
         TextView title = text(getString(R.string.screen_title), 28, COLOR_TEXT);
         title.setTypeface(title.getTypeface(), android.graphics.Typeface.BOLD);
         content.addView(title);
+        content.addView(text(getString(R.string.home_intro), 14, COLOR_SECONDARY));
 
-        serviceStatus = text("", 15, COLOR_ERROR);
-        LinearLayout.LayoutParams statusParams = matchWrap();
-        statusParams.topMargin = dp(12);
-        content.addView(serviceStatus, statusParams);
-
-        autoStartStatus = text("", 14, COLOR_SECONDARY);
-        LinearLayout.LayoutParams autoStartParams = matchWrap();
-        autoStartParams.topMargin = dp(4);
-        content.addView(autoStartStatus, autoStartParams);
-
-        Button accessibilityButton = new Button(this);
-        accessibilityButton.setText(R.string.open_accessibility_settings);
-        accessibilityButton.setAllCaps(false);
-        accessibilityButton.setOnClickListener(view ->
-                openAccessibilitySettings());
-        LinearLayout.LayoutParams buttonParams = matchWrap();
-        buttonParams.topMargin = dp(12);
-        content.addView(accessibilityButton, buttonParams);
-
-        content.addView(divider(), dividerParams(28, 24));
-
+        LinearLayout overview = card(content);
         Switch enabled = new Switch(this);
         enabled.setId(R.id.enable_correction);
-        enabled.setText(R.string.correction_enabled);
+        enabled.setText(R.string.home_enabled);
+        enabled.setTextSize(18);
         enabled.setTextColor(COLOR_TEXT);
-        enabled.setTextSize(17);
-        enabled.setGravity(Gravity.CENTER_VERTICAL);
         enabled.setChecked(VolumeStepSettings.isEnabled(this));
-        enabled.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            VolumeStepSettings.setEnabled(this, isChecked);
-            if (isChecked) {
-                VolumeKeeperService.start(this);
-                continuePermissionSetup();
-            } else {
-                VolumeKeeperService.stop(this);
-            }
-            refreshBackgroundStatus();
+        enabled.setOnCheckedChangeListener((button, checked) -> {
+            VolumeStepSettings.setEnabled(this, checked);
+            if (checked) VolumeKeeperService.start(this); else VolumeKeeperService.stop(this);
+            refreshServiceStatus();
         });
-        content.addView(enabled, matchWrap());
+        overview.addView(enabled, matchWrap());
+        serviceStatus = text("", 14, COLOR_SECONDARY);
+        overview.addView(serviceStatus, matchWrap());
+        currentVolume = text("", 16, COLOR_TEXT);
+        overview.addView(currentVolume, matchWrap());
+        LinearLayout steps = card(content);
+        steps.addView(text(getString(R.string.home_steps), 18, COLOR_TEXT));
+        TextView stepHint = text(stepHint(), 14, COLOR_SECONDARY);
+        steps.addView(stepHint);
+        NumberPicker picker = new NumberPicker(this);
+        picker.setId(R.id.volume_steps);
+        picker.setMinValue(VolumeStepSettings.MIN_STEPS);
+        picker.setMaxValue(VolumeStepSettings.MAX_STEPS);
+        picker.setValue(VolumeStepSettings.steps(this));
+        picker.setWrapSelectorWheel(false);
+        picker.setFormatter(value -> getString(R.string.home_step_value, value));
+        picker.setDescendantFocusability(NumberPicker.FOCUS_BLOCK_DESCENDANTS);
+        picker.setOnValueChangedListener((view, oldValue, value) -> {
+            VolumeStepSettings.setSteps(this, value);
+            stepHint.setText(stepHint());
+        });
+        LinearLayout.LayoutParams pickerParams = new LinearLayout.LayoutParams(-1, dp(116));
+        steps.addView(picker, pickerParams);
 
-        LinearLayout.LayoutParams sectionParams = matchWrap();
-        sectionParams.topMargin = dp(28);
-
-        TextView backgroundLabel = sectionLabel(R.string.background_section);
-        content.addView(backgroundLabel, sectionParams);
-
-        backgroundStatus = text("", 14, COLOR_SECONDARY);
-        backgroundStatus.setId(R.id.background_status);
-        LinearLayout.LayoutParams backgroundStatusParams = matchWrap();
-        backgroundStatusParams.topMargin = dp(10);
-        content.addView(backgroundStatus, backgroundStatusParams);
-
-        backgroundPermissionButton = new Button(this);
-        backgroundPermissionButton.setId(R.id.background_permissions);
-        backgroundPermissionButton.setAllCaps(false);
-        backgroundPermissionButton.setOnClickListener(view ->
-                handleBackgroundPermissionAction());
-        LinearLayout.LayoutParams backgroundButtonParams = matchWrap();
-        backgroundButtonParams.topMargin = dp(10);
-        content.addView(backgroundPermissionButton, backgroundButtonParams);
-
-        Button autoStartButton = new Button(this);
-        autoStartButton.setId(R.id.auto_start_settings);
-        autoStartButton.setText(BackgroundAccess.hasVendorAutoStartSettings(this)
-                ? R.string.open_auto_start_settings : R.string.view_auto_start_help);
-        autoStartButton.setAllCaps(false);
-        autoStartButton.setOnClickListener(view -> showAutoStartDialog());
-        LinearLayout.LayoutParams autoStartButtonParams = matchWrap();
-        autoStartButtonParams.topMargin = dp(6);
-        content.addView(autoStartButton, autoStartButtonParams);
-
-        Button vendorBackground = new Button(this);
-        vendorBackground.setText(R.string.open_vendor_background_settings);
-        vendorBackground.setAllCaps(false);
-        vendorBackground.setOnClickListener(view -> new AlertDialog.Builder(this)
-                .setTitle(R.string.vendor_background_title)
-                .setMessage(R.string.vendor_background_help)
-                .setPositiveButton(R.string.open_vendor_background_settings,
-                        (dialog, which) -> BackgroundAccess.openVendorBackgroundSettings(this))
-                .setNegativeButton(android.R.string.cancel, null).show());
-        content.addView(vendorBackground, autoStartButtonParams);
-
-        TextView shizukuLabel = sectionLabel(R.string.shizuku_section);
-        content.addView(shizukuLabel, sectionParams);
+        LinearLayout modes = card(content);
+        modes.addView(text(getString(R.string.home_mode), 18, COLOR_TEXT));
+        RadioGroup choices = new RadioGroup(this);
+        int[] labels = {R.string.mode_assistant, R.string.mode_shizuku, R.string.mode_root};
+        int[] ids = {R.id.mode_assistant, R.id.mode_shizuku, R.id.mode_root};
+        for (int i = 0; i < labels.length; i++) {
+            RadioButton option = new RadioButton(this);
+            option.setId(ids[i]);
+            option.setText(labels[i]);
+            option.setTextSize(16);
+            option.setTextColor(COLOR_TEXT);
+            choices.addView(option, new RadioGroup.LayoutParams(-1, -2));
+        }
+        choices.check(ids[VolumeStepSettings.mode(this).ordinal()]);
+        choices.setOnCheckedChangeListener((group, id) -> {
+            OperatingMode mode = id == R.id.mode_root ? OperatingMode.ROOT
+                    : id == R.id.mode_shizuku ? OperatingMode.SHIZUKU : OperatingMode.ASSISTANT;
+            VolumeStepSettings.setMode(this, mode);
+            VolumeKeeperService.start(this);
+            renderSelectedMode();
+        });
+        modes.addView(choices);
+        modeHelp = text("", 14, COLOR_SECONDARY);
+        modeHelp.setId(R.id.mode_help);
+        modes.addView(modeHelp);
         shizukuStatus = text("", 14, COLOR_SECONDARY);
         shizukuStatus.setId(R.id.shizuku_status);
-        content.addView(shizukuStatus, backgroundStatusParams);
-        Button shizukuSetup = new Button(this);
-        shizukuSetup.setId(R.id.shizuku_setup);
-        shizukuSetup.setText(R.string.shizuku_setup);
-        shizukuSetup.setAllCaps(false);
-        shizukuSetup.setOnClickListener(view -> showShizukuSetup());
-        content.addView(shizukuSetup, backgroundButtonParams);
+        modes.addView(shizukuStatus);
+        selectedModeContent = new LinearLayout(this);
+        selectedModeContent.setOrientation(LinearLayout.VERTICAL);
+        modes.addView(selectedModeContent, matchWrap());
+        renderSelectedMode();
 
-        if (CompatibilityVolumeBridge.supportedDevice()) {
-            Button companionSetup = new Button(this);
-            companionSetup.setText(R.string.compatibility_setup);
-            companionSetup.setAllCaps(false);
-            companionSetup.setOnClickListener(view -> new AlertDialog.Builder(this)
-                    .setTitle(R.string.compatibility_setup)
-                    .setMessage(R.string.compatibility_help)
-                    .setPositiveButton(R.string.compatibility_open_permissions, (dialog, which) -> {
-                        try {
-                            getPackageManager().getApplicationInfo(CompatibilityVolumeBridge.PACKAGE, 0);
-                            BackgroundAccess.openAutoStartSettings(this, CompatibilityVolumeBridge.PACKAGE);
-                        } catch (PackageManager.NameNotFoundException exception) {
-                            new AlertDialog.Builder(this)
-                                    .setMessage(R.string.compatibility_not_installed)
-                                    .setPositiveButton(android.R.string.ok, null).show();
-                        }
-                    })
-                    .setNegativeButton(android.R.string.cancel, null).show());
-            content.addView(companionSetup, autoStartButtonParams);
+        LinearLayout permissions = card(content);
+        permissions.addView(text(getString(R.string.home_permissions), 18, COLOR_TEXT));
+        backgroundStatus = text("", 14, COLOR_SECONDARY);
+        backgroundStatus.setId(R.id.background_status);
+        permissions.addView(backgroundStatus);
+        permissions.addView(action(getString(R.string.home_permission_guide), R.id.permission_guide, this::showPermissionGuide), matchWrap());
+        content.addView(action(getString(R.string.home_advanced), R.id.advanced_settings, this::showAdvanced), matchWrap());
+        return scroll;
+    }
+
+    private String stepHint() {
+        return getString(R.string.home_step_hint, 100d / VolumeStepSettings.steps(this));
+    }
+
+    private LinearLayout card(LinearLayout parent) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(16), dp(16), dp(16), dp(12));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.WHITE);
+        background.setCornerRadius(dp(16));
+        background.setStroke(dp(1), COLOR_DIVIDER);
+        card.setBackground(background);
+        LinearLayout.LayoutParams params = matchWrap();
+        params.topMargin = dp(16);
+        parent.addView(card, params);
+        return card;
+    }
+
+    private Button action(String label, int id, Runnable callback) {
+        Button button = new Button(this);
+        button.setId(id);
+        button.setText(label);
+        button.setAllCaps(false);
+        button.setOnClickListener(view -> callback.run());
+        return button;
+    }
+
+    private void renderSelectedMode() {
+        selectedModeContent.removeAllViews();
+        compatibilityGrantButton = null;
+        OperatingMode mode = VolumeStepSettings.mode(this);
+        if (mode == OperatingMode.ROOT) {
+            modeHelp.setText(R.string.root_mode_help);
+            selectedModeContent.addView(action(getString(R.string.root_setup), R.id.mode_setup, () -> {
+                VolumeKeeperService.start(this);
+                handler.postDelayed(() -> {
+                    VolumeAdjustmentController controller = VolumeKeeperService.controller();
+                    if (controller != null) controller.setupRoot(this::showSetupReport);
+                    else showSetupReport(getString(R.string.root_enable_first));
+                }, 150);
+            }), matchWrap());
+        } else if (mode == OperatingMode.SHIZUKU) {
+            modeHelp.setText(R.string.shizuku_mode_help);
+            selectedModeContent.addView(action(getString(R.string.shizuku_mode_setup),
+                    R.id.shizuku_setup, this::connectShizuku), matchWrap());
+        } else {
+            modeHelp.setText(CompatibilityVolumeBridge.supportedDevice()
+                    ? R.string.assistant_vivo_help : R.string.assistant_mode_help);
+            selectedModeContent.addView(action(getString(R.string.assistant_accessibility), R.id.mode_setup,
+                    this::openAccessibilitySettings), matchWrap());
+            if (CompatibilityVolumeBridge.supportedDevice()) {
+                selectedModeContent.addView(action(getString(R.string.helper_install), R.id.install_helper,
+                        this::installBundledHelper), matchWrap());
+                selectedModeContent.addView(action(getString(R.string.helper_background), View.generateViewId(), () -> {
+                    try { startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.parse("package:" + CompatibilityVolumeBridge.PACKAGE))); }
+                    catch (RuntimeException exception) { showCompatibilityGrantMessage(R.string.compatibility_not_installed); }
+                }), matchWrap());
+                compatibilityGrantButton = action(getString(R.string.compatibility_grant_methods), R.id.compatibility_grant,
+                        this::showCompatibilityGrantMethods);
+                selectedModeContent.addView(compatibilityGrantButton, matchWrap());
+            }
         }
+        refreshShizukuStatus();
+    }
 
-        TextView stepsLabel = sectionLabel(R.string.step_count);
-        content.addView(stepsLabel, sectionParams);
+    private void showAdvanced() {
+        new AlertDialog.Builder(this).setTitle(R.string.advanced_title)
+                .setItems(new String[]{VolumeStepSettings.isMediaOnly(this)
+                        ? getString(R.string.advanced_scope_media) : getString(R.string.advanced_scope_all),
+                        getString(R.string.export_diagnostics)},
+                        (dialog, which) -> {
+                            if (which == 1) { shareDiagnostics(); return; }
+                            new AlertDialog.Builder(this).setTitle(R.string.advanced_scope)
+                                    .setSingleChoiceItems(new String[]{getString(R.string.scope_media_recommended),
+                                            getString(R.string.scope_all_short)},
+                                            VolumeStepSettings.isMediaOnly(this) ? 0 : 1,
+                                            (choice, selected) -> {
+                                                VolumeStepSettings.setMediaOnly(this, selected == 0);
+                                                choice.dismiss();
+                                            }).setNegativeButton(android.R.string.cancel, null).show();
+                        }).setNegativeButton(android.R.string.cancel, null).show();
+    }
 
-        NumberPicker stepPicker = new NumberPicker(this);
-        stepPicker.setId(R.id.volume_steps);
-        stepPicker.setMinValue(VolumeStepSettings.MIN_STEPS);
-        stepPicker.setMaxValue(VolumeStepSettings.MAX_STEPS);
-        stepPicker.setValue(VolumeStepSettings.steps(this));
-        stepPicker.setWrapSelectorWheel(false);
-        stepPicker.setFormatter(value -> getString(R.string.step_count_value, value));
-        stepPicker.setDescendantFocusability(NumberPicker.FOCUS_BLOCK_DESCENDANTS);
-        stepPicker.setOnValueChangedListener((picker, oldValue, newValue) -> {
-            VolumeStepSettings.setSteps(this, newValue);
-            VolumeKeeperService.start(this);
-        });
-        LinearLayout.LayoutParams pickerParams = new LinearLayout.LayoutParams(
-                dp(180),
-                dp(128)
-        );
-        pickerParams.gravity = Gravity.START;
-        pickerParams.topMargin = dp(6);
-        content.addView(stepPicker, pickerParams);
+    private void installBundledHelper() {
+        if (!getPackageManager().canRequestPackageInstalls()) {
+            new AlertDialog.Builder(this).setTitle(R.string.helper_install_allow_title)
+                    .setMessage(R.string.helper_install_allow_help)
+                    .setPositiveButton(R.string.open_settings, (dialog, which) -> startActivity(new Intent(
+                            Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName()))))
+                    .setNegativeButton(android.R.string.cancel, null).show();
+            return;
+        }
+        try {
+            HelperApkProvider.prepare(this);
+            Intent intent = new Intent(Intent.ACTION_VIEW).setDataAndType(
+                    HelperApkProvider.URI, "application/vnd.android.package-archive")
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            intent.setClipData(ClipData.newRawUri("内置助手", HelperApkProvider.URI));
+            startActivity(intent);
+        } catch (Exception exception) { showSetupReport(getString(R.string.helper_installer_failed, exception.getMessage())); }
+    }
 
-        TextView scopeLabel = sectionLabel(R.string.scope);
-        content.addView(scopeLabel, sectionParams);
+    private void showSetupReport(String report) {
+        if (isFinishing() || isDestroyed()) return;
+        new AlertDialog.Builder(this).setTitle(R.string.setup_result).setMessage(report)
+                .setPositiveButton(R.string.home_permission_guide, (dialog, which) -> showPermissionGuide())
+                .setNegativeButton(R.string.setup_done, null).show();
+    }
 
-        RadioGroup scope = new RadioGroup(this);
-        scope.setOrientation(RadioGroup.VERTICAL);
-        RadioButton mediaOnly = radioButton(R.string.scope_media);
-        RadioButton allStreams = radioButton(R.string.scope_all);
-        mediaOnly.setId(View.generateViewId());
-        allStreams.setId(View.generateViewId());
-        scope.addView(mediaOnly);
-        scope.addView(allStreams);
-        scope.check(VolumeStepSettings.isMediaOnly(this)
-                ? mediaOnly.getId()
-                : allStreams.getId());
-        scope.setOnCheckedChangeListener((group, checkedId) ->
-                VolumeStepSettings.setMediaOnly(this, checkedId == mediaOnly.getId()));
-        LinearLayout.LayoutParams scopeParams = matchWrap();
-        scopeParams.topMargin = dp(8);
-        content.addView(scope, scopeParams);
-
-        content.addView(divider(), dividerParams(28, 20));
-
-        currentVolume = text("", 16, COLOR_TEXT);
-        content.addView(currentVolume);
-
-        TextView privacy = text(getString(R.string.pass_through_status), 14, COLOR_SECONDARY);
-        LinearLayout.LayoutParams privacyParams = matchWrap();
-        privacyParams.topMargin = dp(10);
-        content.addView(privacy, privacyParams);
-
-        Button diagnostics = new Button(this);
-        diagnostics.setId(R.id.export_diagnostics);
-        diagnostics.setText(R.string.export_diagnostics);
-        diagnostics.setAllCaps(false);
-        diagnostics.setOnClickListener(view -> shareDiagnostics());
-        content.addView(diagnostics, privacyParams);
-
-        return scrollView;
+    private void setupShizukuPermissions() {
+        setupShell.setup(this::showSetupReport);
+        VolumeAdjustmentController controller = VolumeKeeperService.controller();
+        if (controller != null) controller.connectShizuku();
     }
 
     private void refreshShizukuStatus() {
@@ -287,16 +351,184 @@ public final class MainActivity extends Activity {
             return;
         }
         VolumeAdjustmentController controller = VolumeKeeperService.controller();
-        int status = controller == null ? VolumeStepSettings.isShizukuEnabled(this)
-                ? R.string.shizuku_paused : R.string.shizuku_off : controller.shizukuStatus();
-        int companion = controller == null ? R.string.compatibility_paused
-                : controller.compatibilityStatus();
-        shizukuStatus.setText(status == R.string.shizuku_ready ? getString(status)
-                : companion == R.string.compatibility_ready ? getString(companion)
-                : getString(status) + (companion == R.string.compatibility_not_applicable
-                ? "" : "\n" + getString(companion)));
+        if (VolumeStepSettings.mode(this) == OperatingMode.ROOT) {
+            shizukuStatus.setText(controller == null ? getString(R.string.enable_first)
+                    : controller.rootStatus());
+            shizukuStatus.setTextColor(COLOR_SECONDARY);
+            return;
+        }
+        if (VolumeStepSettings.mode(this) == OperatingMode.ASSISTANT) {
+            int companion = controller == null ? R.string.compatibility_paused
+                    : controller.compatibilityStatus();
+            shizukuStatus.setText(companion);
+            shizukuStatus.setTextColor(companion == R.string.compatibility_input_ready
+                    || companion == R.string.compatibility_ready ? COLOR_ACCENT : COLOR_SECONDARY);
+            refreshCompatibilityGrantButton();
+            return;
+        }
+        int status = controller == null ? R.string.shizuku_paused : controller.shizukuStatus();
+        shizukuStatus.setText(status);
         shizukuStatus.setTextColor(status == R.string.shizuku_ready
-                || companion == R.string.compatibility_ready ? COLOR_ACCENT : COLOR_SECONDARY);
+                ? COLOR_ACCENT : COLOR_ERROR);
+    }
+
+    private void refreshCompatibilityGrantButton() {
+        if (compatibilityGrantButton == null) return;
+        boolean installed;
+        try {
+            getPackageManager().getApplicationInfo(CompatibilityVolumeBridge.PACKAGE, 0);
+            installed = true;
+        } catch (PackageManager.NameNotFoundException exception) {
+            installed = false;
+        }
+        boolean granted = installed && CompatibilityGrantBridge.isGranted(this);
+        compatibilityGrantButton.setText(granted
+                ? R.string.compatibility_grant_ready
+                : R.string.compatibility_grant_methods);
+        compatibilityGrantButton.setEnabled(installed && !granted);
+    }
+
+    private void showCompatibilityGrantMethods() {
+        if (!isCompatibilityHelperInstalled()) {
+            showCompatibilityGrantMessage(R.string.compatibility_not_installed);
+            return;
+        }
+        if (CompatibilityGrantBridge.isGranted(this)) {
+            refreshCompatibilityGrantButton();
+            showCompatibilityGrantMessage(R.string.compatibility_grant_already_ready);
+            return;
+        }
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(20), dp(4), dp(20), dp(12));
+        content.addView(text(
+                getString(R.string.compatibility_grant_intro), 14, COLOR_SECONDARY),
+                matchWrap());
+
+        TextView usbTitle = text(
+                getString(R.string.compatibility_grant_usb_title), 16, COLOR_TEXT);
+        usbTitle.setTypeface(usbTitle.getTypeface(), android.graphics.Typeface.BOLD);
+        LinearLayout.LayoutParams methodTitleParams = matchWrap();
+        methodTitleParams.topMargin = dp(18);
+        content.addView(usbTitle, methodTitleParams);
+
+        TextView usbHelp = text(
+                getString(R.string.compatibility_grant_usb_help), 14, COLOR_SECONDARY);
+        LinearLayout.LayoutParams methodTextParams = matchWrap();
+        methodTextParams.topMargin = dp(4);
+        content.addView(usbHelp, methodTextParams);
+
+        TextView command = text(CompatibilityGrantContract.ADB_COMMAND, 13, COLOR_TEXT);
+        command.setTypeface(android.graphics.Typeface.MONOSPACE);
+        command.setTextIsSelectable(true);
+        command.setGravity(Gravity.START);
+        LinearLayout.LayoutParams commandParams = matchWrap();
+        commandParams.topMargin = dp(10);
+        content.addView(command, commandParams);
+
+        Button copy = new Button(this);
+        copy.setId(R.id.compatibility_copy_adb);
+        copy.setText(R.string.compatibility_copy_adb);
+        copy.setAllCaps(false);
+        copy.setOnClickListener(view -> copyCompatibilityAdbCommand());
+        LinearLayout.LayoutParams methodButtonParams = matchWrap();
+        methodButtonParams.topMargin = dp(8);
+        content.addView(copy, methodButtonParams);
+
+        TextView shizukuTitle = text(
+                getString(R.string.compatibility_grant_shizuku_title), 16, COLOR_TEXT);
+        shizukuTitle.setTypeface(
+                shizukuTitle.getTypeface(), android.graphics.Typeface.BOLD);
+        content.addView(shizukuTitle, methodTitleParams);
+
+        TextView shizukuHelp = text(
+                getString(R.string.compatibility_grant_shizuku_help), 14, COLOR_SECONDARY);
+        content.addView(shizukuHelp, methodTextParams);
+
+        AlertDialog[] holder = new AlertDialog[1];
+        Button shizuku = new Button(this);
+        shizuku.setId(R.id.compatibility_grant_shizuku);
+        shizuku.setText(R.string.compatibility_grant_shizuku);
+        shizuku.setAllCaps(false);
+        shizuku.setOnClickListener(view -> {
+            if (holder[0] != null) holder[0].dismiss();
+            grantCompatibilityWithShizuku();
+        });
+        content.addView(shizuku, methodButtonParams);
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(content, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        holder[0] = new AlertDialog.Builder(this)
+                .setTitle(R.string.compatibility_grant_title)
+                .setView(scroll)
+                .setNegativeButton(android.R.string.cancel, null)
+                .create();
+        holder[0].show();
+    }
+
+    private void copyCompatibilityAdbCommand() {
+        getSystemService(ClipboardManager.class).setPrimaryClip(
+                ClipData.newPlainText("ADB", CompatibilityGrantContract.ADB_COMMAND));
+        Toast.makeText(this, R.string.compatibility_adb_copied, Toast.LENGTH_SHORT).show();
+    }
+
+    private void grantCompatibilityWithShizuku() {
+        if (!isCompatibilityHelperInstalled()) {
+            showCompatibilityGrantMessage(R.string.compatibility_not_installed);
+            return;
+        }
+        if (CompatibilityGrantBridge.isGranted(this)) {
+            refreshCompatibilityGrantButton();
+            showCompatibilityGrantMessage(R.string.compatibility_grant_already_ready);
+            return;
+        }
+        try {
+            if (!Shizuku.pingBinder()) {
+                showCompatibilityGrantUnavailable(R.string.shizuku_not_running);
+            } else if (Shizuku.isPreV11() || Shizuku.getUid() != 2000) {
+                showCompatibilityGrantUnavailable(R.string.shizuku_unsupported);
+            } else if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
+                grantCompatibilityWithAuthorizedShizuku();
+            } else if (Shizuku.shouldShowRequestPermissionRationale()) {
+                showCompatibilityGrantUnavailable(
+                        R.string.compatibility_grant_permission_required);
+            } else {
+                compatibilityGrantPermissionPending = true;
+                Shizuku.requestPermission(REQUEST_SHIZUKU_COMPATIBILITY_GRANT);
+            }
+        } catch (RuntimeException exception) {
+            showCompatibilityGrantUnavailable(R.string.shizuku_not_running);
+        }
+    }
+
+    private void grantCompatibilityWithAuthorizedShizuku() {
+        compatibilityGrantButton.setEnabled(false);
+        compatibilityGrantButton.setText(R.string.compatibility_grant_working);
+        compatibilityGrant.grant((success, error) -> {
+            if (success) {
+                VolumeAdjustmentController controller = VolumeKeeperService.controller();
+                if (controller != null) controller.refreshCompatibilityInput();
+                showCompatibilityGrantMessage(R.string.compatibility_grant_success);
+                handler.postDelayed(this::refreshShizukuStatus, 300);
+            } else {
+                showCompatibilityGrantMessage(R.string.compatibility_grant_failed);
+                refreshCompatibilityGrantButton();
+            }
+        });
+    }
+
+    private void showCompatibilityGrantUnavailable(int message) {
+        new AlertDialog.Builder(this)
+                .setMessage(message)
+                .setPositiveButton(R.string.shizuku_open, (dialog, which) -> openShizuku())
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    private void showCompatibilityGrantMessage(int message) {
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
     }
 
     private void showShizukuSetup() {
@@ -324,13 +556,11 @@ public final class MainActivity extends Activity {
                 new AlertDialog.Builder(this).setMessage(R.string.shizuku_unsupported)
                         .setPositiveButton(android.R.string.ok, null).show();
             } else if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
-                VolumeAdjustmentController controller = VolumeKeeperService.controller();
-                if (controller != null) {
-                    controller.connectShizuku();
-                }
+                setupShizukuPermissions();
             } else if (Shizuku.shouldShowRequestPermissionRationale()) {
                 openShizuku();
             } else {
+                appSetupPermissionPending = true;
                 Shizuku.requestPermission(REQUEST_SHIZUKU);
             }
         } catch (RuntimeException exception) {
@@ -347,16 +577,15 @@ public final class MainActivity extends Activity {
 
     private void refreshServiceStatus() {
         boolean connected = FineVolumeAccessibilityService.isConnected();
-        serviceStatus.setText(connected ? R.string.service_enabled
+        serviceStatus.setText(!VolumeStepSettings.isEnabled(this) ? R.string.correction_stopped
+                : connected ? R.string.service_enabled
                 : AccessibilityStatus.isEnabled(this) ? R.string.service_connecting
                 : R.string.service_disabled);
         serviceStatus.setTextColor(connected ? COLOR_ACCENT : COLOR_SECONDARY);
-        autoStartStatus.setText(BackgroundAccess.hasVendorAutoStartSettings(this)
-                ? R.string.autostart_vendor_required : R.string.autostart_standard);
     }
 
     private void refreshBackgroundStatus() {
-        if (backgroundStatus == null || backgroundPermissionButton == null) {
+        if (backgroundStatus == null) {
             return;
         }
         boolean notificationAllowed = hasNotificationPermission();
@@ -375,19 +604,6 @@ public final class MainActivity extends Activity {
                         ? R.string.overlay_allowed : R.string.overlay_required)
         ));
 
-        if (!notificationAllowed) {
-            backgroundPermissionButton.setText(R.string.allow_background_notification);
-            backgroundPermissionButton.setEnabled(true);
-        } else if (!batteryUnrestricted) {
-            backgroundPermissionButton.setText(R.string.disable_battery_optimization);
-            backgroundPermissionButton.setEnabled(true);
-        } else if (!Settings.canDrawOverlays(this)) {
-            backgroundPermissionButton.setText(R.string.allow_volume_overlay);
-            backgroundPermissionButton.setEnabled(true);
-        } else {
-            backgroundPermissionButton.setText(R.string.background_permissions_ready);
-            backgroundPermissionButton.setEnabled(false);
-        }
     }
 
     private int runtimeStatus() {
@@ -446,7 +662,6 @@ public final class MainActivity extends Activity {
         if (requestCode == REQUEST_NOTIFICATIONS) {
             permissionRequestInFlight = false;
             refreshBackgroundStatus();
-            continuePermissionSetup();
         }
     }
 
@@ -455,7 +670,6 @@ public final class MainActivity extends Activity {
         if (requestCode == REQUEST_BATTERY || requestCode == REQUEST_OVERLAY) {
             permissionRequestInFlight = false;
             refreshBackgroundStatus();
-            continuePermissionSetup();
         }
     }
 
@@ -477,60 +691,193 @@ public final class MainActivity extends Activity {
                 REQUEST_NOTIFICATIONS);
     }
 
-    private void continuePermissionSetup() {
-        if (!VolumeStepSettings.isEnabled(this) || permissionRequestInFlight) {
+    private void showFirstLaunchPermissionGuide() {
+        if (!flag("permission_guide_shown_v1") && !permissionRequestInFlight) {
+            showPermissionGuide();
+        }
+    }
+
+    private void showPermissionGuide() {
+        if (permissionRequestInFlight) return;
+        mark("permission_guide_shown_v1");
+        PermissionGuideState state = permissionGuideState();
+        permissionRequestInFlight = true;
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(20), dp(4), dp(20), dp(12));
+
+        OperatingMode mode = VolumeStepSettings.mode(this);
+        TextView introduction = text(getString(mode != OperatingMode.ASSISTANT
+                ? R.string.privileged_guide_summary : state.coreReady()
+                        ? R.string.permission_guide_summary_ready
+                        : R.string.permission_guide_summary_missing), 14, COLOR_SECONDARY);
+        introduction.setGravity(Gravity.START);
+        content.addView(introduction, matchWrap());
+        if (mode != OperatingMode.ASSISTANT) {
+            content.addView(text(getString(mode == OperatingMode.ROOT
+                    ? R.string.root_guide_help : R.string.shizuku_guide_help),
+                    14, COLOR_SECONDARY), matchWrap());
+        }
+
+        AlertDialog[] holder = new AlertDialog[1];
+        addPermissionGuideRow(content,
+                R.string.permission_accessibility_title,
+                state.accessibility ? R.string.permission_status_ready
+                        : R.string.permission_status_required,
+                state.accessibility,
+                R.string.open_accessibility_settings,
+                R.id.guide_accessibility,
+                holder,
+                this::openAccessibilitySettings);
+        addPermissionGuideRow(content,
+                R.string.permission_notification_title,
+                state.notification ? R.string.permission_status_ready
+                        : R.string.permission_status_required,
+                state.notification,
+                R.string.open_notification_settings,
+                R.id.guide_notification,
+                holder,
+                this::openNotificationPermission);
+        addPermissionGuideRow(content,
+                R.string.permission_battery_title,
+                state.battery ? R.string.permission_status_ready
+                        : R.string.permission_status_required,
+                state.battery,
+                R.string.open_battery_settings,
+                R.id.guide_battery,
+                holder,
+                this::requestBatteryPermission);
+        addPermissionGuideRow(content,
+                R.string.permission_overlay_title,
+                state.overlay ? R.string.permission_status_ready
+                        : R.string.permission_status_required,
+                state.overlay,
+                R.string.open_overlay_settings,
+                R.id.guide_overlay,
+                holder,
+                this::requestOverlayPermission);
+
+        boolean vendorAutoStart = BackgroundAccess.hasVendorAutoStartSettings(this);
+        addPermissionGuideRow(content,
+                R.string.permission_auto_start_title,
+                vendorAutoStart ? R.string.permission_status_manual
+                        : R.string.permission_status_standard_ready,
+                !vendorAutoStart,
+                vendorAutoStart ? R.string.open_auto_start_settings
+                        : R.string.view_auto_start_help,
+                R.id.guide_auto_start,
+                holder,
+                vendorAutoStart
+                        ? () -> BackgroundAccess.openAutoStartSettings(this)
+                        : this::showAutoStartDialog);
+        addPermissionGuideRow(content,
+                R.string.permission_background_title,
+                R.string.permission_status_manual,
+                false,
+                R.string.open_vendor_background_settings,
+                R.id.guide_background,
+                holder,
+                () -> BackgroundAccess.openVendorBackgroundSettings(this));
+
+        if (VolumeStepSettings.mode(this) == OperatingMode.ASSISTANT
+                && CompatibilityVolumeBridge.supportedDevice()) {
+            int helperStatus = !state.helperInstalled
+                    ? R.string.permission_helper_not_installed
+                    : state.helperOffDisplayReady()
+                            ? R.string.permission_helper_ready
+                            : R.string.permission_helper_optional;
+            addPermissionGuideRow(content,
+                    R.string.permission_helper_title,
+                    helperStatus,
+                    state.helperOffDisplayReady(),
+                    state.helperOffDisplayReady()
+                            ? R.string.compatibility_grant_ready
+                            : R.string.compatibility_grant_methods,
+                    R.id.guide_helper_grant,
+                    holder,
+                    this::showCompatibilityGrantMethods);
+        }
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(content, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        holder[0] = new AlertDialog.Builder(this)
+                .setTitle(R.string.permission_guide_title)
+                .setView(scroll)
+                .setNegativeButton(R.string.permission_guide_later, null)
+                .setOnDismissListener(dialog -> permissionRequestInFlight = false)
+                .create();
+        holder[0].show();
+    }
+
+    private void addPermissionGuideRow(
+            LinearLayout parent,
+            int titleRes,
+            int statusRes,
+            boolean ready,
+            int actionRes,
+            int actionId,
+            AlertDialog[] dialog,
+            Runnable action
+    ) {
+        TextView title = text(getString(titleRes), 16, COLOR_TEXT);
+        title.setTypeface(title.getTypeface(), android.graphics.Typeface.BOLD);
+        LinearLayout.LayoutParams titleParams = matchWrap();
+        titleParams.topMargin = dp(18);
+        parent.addView(title, titleParams);
+
+        TextView status = text(getString(statusRes), 13, ready ? COLOR_ACCENT : COLOR_SECONDARY);
+        LinearLayout.LayoutParams statusParams = matchWrap();
+        statusParams.topMargin = dp(2);
+        parent.addView(status, statusParams);
+
+        Button button = new Button(this);
+        button.setId(actionId);
+        button.setText(actionRes);
+        button.setAllCaps(false);
+        button.setOnClickListener(view -> {
+            if (dialog[0] != null) dialog[0].dismiss();
+            action.run();
+        });
+        LinearLayout.LayoutParams buttonParams = matchWrap();
+        buttonParams.topMargin = dp(6);
+        parent.addView(button, buttonParams);
+    }
+
+    private PermissionGuideState permissionGuideState() {
+        boolean helperInstalled = isCompatibilityHelperInstalled();
+        return new PermissionGuideState(
+                AccessibilityStatus.isEnabled(this),
+                hasNotificationPermission(),
+                BackgroundAccess.isIgnoringBatteryOptimizations(this),
+                Settings.canDrawOverlays(this),
+                helperInstalled,
+                helperInstalled && CompatibilityGrantBridge.isGranted(this));
+    }
+
+    private boolean isCompatibilityHelperInstalled() {
+        try {
+            getPackageManager().getApplicationInfo(CompatibilityGrantContract.HELPER_PACKAGE, 0);
+            return true;
+        } catch (PackageManager.NameNotFoundException exception) {
+            return false;
+        }
+    }
+
+    private void openNotificationPermission() {
+        if (!hasNotificationPermission()
+                && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+                && (!flag("notification_requested")
+                || shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS))) {
+            requestNotificationPermission();
             return;
         }
-        if (!AccessibilityStatus.isEnabled(this)) {
-            if (!accessibilityPromptShown) {
-                boolean recovery = flag("accessibility_explained");
-                accessibilityPromptShown = true;
-                mark("accessibility_explained");
-                permissionRequestInFlight = true;
-                new AlertDialog.Builder(this)
-                        .setTitle(recovery ? R.string.accessibility_recovery_title
-                                : R.string.accessibility_setup_title)
-                        .setMessage(recovery ? R.string.accessibility_recovery_help
-                                : R.string.accessibility_service_description)
-                        .setPositiveButton(R.string.open_accessibility_settings,
-                                (dialog, which) -> openAccessibilitySettings())
-                        .setNegativeButton(android.R.string.cancel, null)
-                        .setOnDismissListener(dialog -> {
-                            permissionRequestInFlight = false;
-                            handler.postDelayed(() -> {
-                                if (hasWindowFocus()) {
-                                    continuePermissionSetup();
-                                }
-                            }, 150);
-                        })
-                        .show();
-                return;
-            }
-        } else {
-            accessibilityPromptShown = false;
-        }
-        if (!hasNotificationPermission()) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-                    && !flag("notification_requested")) {
-                requestNotificationPermission();
-                return;
-            }
-        }
-        if (!BackgroundAccess.isIgnoringBatteryOptimizations(this)
-                && !flag("battery_requested")) {
-            mark("battery_requested");
-            requestBatteryPermission();
-            return;
-        }
-        if (!Settings.canDrawOverlays(this) && !flag("overlay_requested")) {
-            mark("overlay_requested");
-            requestOverlayPermission();
-            return;
-        }
-        if (BackgroundAccess.hasVendorAutoStartSettings(this)
-                && !flag("auto_start_explained_v2")) {
-            showAutoStartDialog();
-        }
+        startActivity(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName()));
     }
 
     private void showAutoStartDialog() {

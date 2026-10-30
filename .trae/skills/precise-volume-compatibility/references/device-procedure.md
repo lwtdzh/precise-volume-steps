@@ -39,11 +39,26 @@ an upgrade of the existing phone needs its original certificate.
 | Backend | Install / setup |
 |---|---|
 | Direct AudioManager | Main only, accessibility and background permissions |
-| Vivo helper | Main + helper, main self-start/background, helper 关联启动 |
+| Vivo helper | Main + helper 1.2, main self-start/background, helper 关联启动; one-time `adb shell pm grant com.vivo.finevolumesteps.helper android.permission.DUMP` for verified screen-off input |
 | Shizuku | Main + external Shizuku, ADB-started shell UID 2000, explicit grant |
 
-Helper label: `精准音量兼容助手（独立应用）`. It has no launcher icon.
+Helper label: `精准音量兼容助手（独立应用）`. It has no launcher activity.
 Main entry **设置独立兼容助手 → 打开助手权限设置** opens its system settings.
+Ready screen-off diagnostics on the verified firmware should additionally show
+`input checked=true, available=true, registered=true`. The DUMP grant is an
+install permission that survived helper replacement, process force-stop and
+real phone reboot in the 1.2 qualification. Revocation must update status and
+unregister input; uninstalling the helper removes the grant.
+MainActivity can perform this fixed one-time grant through an ADB-started
+Shizuku without selecting the Shizuku volume backend. The ephemeral user
+service accepts no package or command argument, invokes only
+`pm grant com.vivo.finevolumesteps.helper android.permission.DUMP`, verifies
+PackageManager readback and unbinds immediately. Keep the manual ADB command
+available as a fallback. When the grant is missing, **设置助手熄屏授权** must
+show both methods: the complete copyable USB ADB command and a Shizuku action.
+If Shizuku is unavailable, its failure dialog must offer to open the Shizuku
+app or download page. DUMP readiness is screen-off-only and must never gate the
+accessibility path while the display is on.
 Ready diagnostics should show `companion=supported=true, ready=true`;
 test with `Shizuku=enabled=false` to establish helper behavior independently.
 No WRITE_SECURE_SETTINGS grant to Shizuku is needed for this backend.
@@ -104,6 +119,13 @@ Parse the full bound-services section up to the next field; verify both labels,
 the expected component set and the keeper's `accessibility connected=true`.
 Do not search a single bound-service line for package names.
 
+When comparing enabled lists, resolve a leading-dot class against its package
+and compare component sets. Android can persist
+`roro.stellar.volumesteps/.FineVolumeAccessibilityService` instead of the full
+class name and change the order without enabling or disabling a service.
+Keep the original strings as evidence; do not rewrite other services merely
+to make a string comparison pass.
+
 ## UI observation and blocked Settings
 
 Use the host component
@@ -114,6 +136,13 @@ Changing the target changes the external-files directory. Inspect private
 unlock helpers for this dependency without exposing their credentials.
 Keep the observer until the final UI/accessibility/shortcut checks are finished,
 then remove introduced host/observer/probe packages.
+
+Before the first credential unlock after a real reboot, the development observer
+cannot start. The 2026-10-28 attempt timed out. A shell `uiautomator dump` was
+used only for that first-unlock fallback with the existing private procedure.
+It can suppress accessibility; verify the complete enabled list and actual
+bound services afterward. Do not embed a credential in repository tools or
+mark an observer timeout as a volume-controller failure.
 
 For a reused playback activity, use `am start -f 0x20000000` so new extras reach
 `onNewIntent`. A plain start can merely bring the task forward and leave its
@@ -152,6 +181,9 @@ APK, fixture identity, backend, step count, complete assertions and error-free
 completion. Restore all preferences in cleanup, not only steps or backend.
 Remove only fixtures introduced for the session and confirm no active playback,
 pending correction, overlay or key wake lock remains.
+When verifying removal, `pm path` returns status 1 for an absent package.
+Use an exact `pm list packages` comparison or explicitly handle that status;
+do not label the expected absence as a failed uninstall.
 
 ## Screen and installation record
 
@@ -167,6 +199,22 @@ If Vivo's self-start UI entry is missing, inspect standard permissions and the
 system startup record before changing code. A historical full reinstall rebuilt
 the record; overlay installs did not. Full uninstall erases settings and is a
 last-resort, separately justified operation with preservation/restoration.
+
+## System-process diagnosis
+
+Prefer matched firmware decompilation, dumpsys and bounded CLI probes.
+On the Android 16 Vivo investigated on 2026-10-29, a Frida 17.24.3 logging
+session was followed by a system_server SIGBUS and framework restart.
+An observational script still changes the ART runtime through instrumentation.
+Do not repeat system_server attachment on this phone; collect subsequent
+evidence with independent CLI/native readers and retain the crash.
+See [the actual filter and live-policy record](ordinary-screen-off.md).
+
+After a framework crash, check kernel boot ID and system_server PID separately.
+Retain the original failed acquisition, verify restored settings and actual
+main/helper/other accessibility connections, and remove the diagnostic server
+and port forward before continuing. A framework restart or BOOT_COMPLETED
+broadcast alone is not a new physical reboot.
 
 ## Another vendor
 

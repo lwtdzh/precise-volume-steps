@@ -17,8 +17,8 @@ android {
         applicationId 'roro.stellar.volumesteps'
         minSdk 28
         targetSdk 37
-        versionCode 26
-        versionName '1.4.14'
+        versionCode 28
+        versionName '1.5.0'
     }
 
     buildFeatures {
@@ -38,8 +38,21 @@ android {
 dependencies {
     implementation 'dev.rikka.shizuku:api:13.1.5'
     implementation 'dev.rikka.shizuku:provider:13.1.5'
+    implementation 'com.github.topjohnwu.libsu:core:6.0.0'
+    implementation 'com.github.topjohnwu.libsu:service:6.0.0'
     testImplementation 'junit:junit:4.13.2'
 }
+
+def helperAssets = layout.buildDirectory.dir('generated/helper-assets')
+tasks.register('bundleCompatibilityHelper', Copy) {
+    dependsOn ':compatibility-helper:assembleRelease'
+    from project(':compatibility-helper').layout.buildDirectory.file(
+            'outputs/apk/release/compatibility-helper-release.apk')
+    into helperAssets
+    rename { 'volume-helper.apk' }
+}
+android.sourceSets.main.assets.srcDir(helperAssets)
+tasks.named('preBuild').configure { dependsOn 'bundleCompatibilityHelper' }
 
 subprojects {
     plugins.withId('com.android.application') {

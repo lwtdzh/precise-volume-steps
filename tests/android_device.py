@@ -10,6 +10,16 @@ HOST = PACKAGE + ".testhost"
 UI_OBSERVER = PACKAGE + ".uitools"
 
 
+def normalized_components(value):
+    result = set()
+    for component in filter(None, value.split(":")):
+        package, class_name = component.split("/", 1)
+        if class_name.startswith("."):
+            class_name = package + class_name
+        result.add(package + "/" + class_name)
+    return result
+
+
 class Device:
     def __init__(self, serial, preset_dex=None):
         self.serial = serial
@@ -40,9 +50,13 @@ class Device:
             raise RuntimeError("System rejected the test baseline")
 
     def ui(self):
-        result = self.shell("am", "instrument", "-w", HOST + "/.DumpUiInstrumentation")
+        for _ in range(3):
+            result = self.shell("am", "instrument", "-w", HOST + "/.DumpUiInstrumentation")
+            if "No active window" not in result:
+                break
+            time.sleep(.5)
         if "INSTRUMENTATION_CODE: 0" not in result:
-            raise RuntimeError("UI inspection failed")
+            raise RuntimeError("UI inspection failed: " + result)
         path = re.search(r"INSTRUMENTATION_RESULT: path=(.*)", result).group(1)
         return list(ET.fromstring(self.shell("cat", path)).iter("node"))
 
@@ -127,11 +141,14 @@ class Device:
             time.sleep(.2)
         raise RuntimeError("Vivo shortcut settings did not match requested values")
 
-    def restore_accessibility(self):
-        if "accessibility connected=true" in self.service():
+    def restore_accessibility(self, reconnect=False):
+        """Restore the service, or explicitly rebind it for startup diagnosis."""
+        if not reconnect and "accessibility connected=true" in self.service():
             return
         original = self.shell("settings", "get", "secure", "enabled_accessibility_services").strip()
-        self.shell("am", "start", "-a", "android.settings.ACCESSIBILITY_SETTINGS")
+        # Clear an existing Settings detail page, such as unknown-app sources.
+        self.shell("am", "start", "-f", "0x14000000",
+                   "-a", "android.settings.ACCESSIBILITY_SETTINGS")
         for _ in range(12):
             nodes = self.ui()
             scroll = next((n for n in nodes if n.get("class") in (
@@ -207,7 +224,7 @@ class Device:
             confirm("允许")
         time.sleep(.5)
         after = self.shell("settings", "get", "secure", "enabled_accessibility_services").strip()
-        if set(after.split(":")) != set(original.split(":")):
+        if normalized_components(after) != normalized_components(original):
             raise RuntimeError("Accessibility list changed unexpectedly")
         deadline = time.monotonic() + 4
         while time.monotonic() < deadline:

@@ -53,7 +53,7 @@ changes; record actual tested hash, not only versionName.
 
 ## Existing unit tests
 
-Current count is 31 (may grow):
+Current count is 35 (may grow):
 
 - `VolumeDisplayTest`: independent percent/configured-scale mapping.
 - `VolumeStepQuantizerTest`: older grid utility behavior.
@@ -65,6 +65,9 @@ Current count is 31 (may grow):
   event parsing, fresh matched release, stale/unmatched keys, chords and bounded holds.
 - `RawVolumeBaselineTest`: audio policy writes before raw callbacks/polling,
   already-observed transitions, rebasing from passive presets, failed reads.
+- `AccessibilityVolumeBaselineTest`: delayed callbacks with already-observed
+  transitions, original event time, direction/freshness checks, passive changes
+  and failed readbacks. Accessibility never adopts the raw fallback.
 
 ## Instrumentation
 
@@ -88,7 +91,8 @@ Vivo may require observed installer acknowledgement taps; use the compatibility
 skill's device procedure. Do not interpret a hanging installer as completed.
 
 The runner parses test JSON and final instrumentation status, records installed
-main APK hash, before/after device snapshots, raw output and errors outside Git:
+main/host/helper APK hashes, Java fixture hash, before/after device snapshots,
+raw output and errors outside Git:
 
 ```sh
 # Physical Vivo backend test, synthetic controller callbacks with real helper IPC
@@ -110,10 +114,49 @@ python3 tests/run_instrumentation.py --serial EMULATOR_SERIAL \
   --suite backend --backend shizuku --steps 5 --output /tmp/pvs-shizuku
 python3 tests/run_instrumentation.py --serial EMULATOR_SERIAL \
   --suite backend --backend shizuku --steps 7 --output /tmp/pvs-shizuku
+
+# Optional Root: disposable rootable emulator or a separately authorized Root phone
+python3 tests/run_instrumentation.py --serial EMULATOR_SERIAL \
+  --suite modes --apk build/outputs/apk/release/precise-volume-steps-release.apk \
+  --host-apk tests/host/build/outputs/apk/debug/precise-volume-steps-test-host-debug.apk \
+  --output /tmp/pvs-root
+python3 tests/run_instrumentation.py --serial EMULATOR_SERIAL \
+  --suite backend --backend root --steps 7 \
+  --apk build/outputs/apk/release/precise-volume-steps-release.apk \
+  --host-apk tests/host/build/outputs/apk/debug/precise-volume-steps-test-host-debug.apk \
+  --output /tmp/pvs-root
 ```
+
+The main correction switch must be enabled before backend fixtures; a modes
+fixture restores its original enabled state, so a prior clear-data guide run
+can leave it off. Keep such setup failures. `modes` uses actual su/libsu,
+checks permission readbacks, exclusive bindings, bundled APK bytes/read-only
+installer URI and old release timers. AOSP's built-in su normally rejects
+third-party apps; an adb-root emulator alone does not imply usable app su.
+Use `three-modes.md` for the limitations of a temporary test broker.
+
+Pass `--apk` and `--host-apk` on any fixture to require installed byte hashes.
+After introducing `operating_mode`, external HID and other preference fixtures
+must set that value as well as the legacy Shizuku flag, then restore both.
 
 Use the actual `emulator-NNNN` serial in place of EMULATOR_SERIAL. The runner
 rejects frame/screen-off fixtures for a non-emulator serial.
+
+Clear-data permission guidance has a separate UI test. It installs the
+same-signed main, host and non-suppressing UI observer, clears only the main
+application on a disposable emulator, and checks that the guide appears while
+correction is still off. It verifies all generic jump buttons, the permanent
+reopen entry and the accessibility settings destination. It also installs the
+helper, revokes DUMP, stops the test Shizuku server and verifies the missing-grant
+chooser's full USB command, exact clipboard value, Shizuku action/recovery and
+final revoked readback. The pure unit tests separately assert that missing
+helper DUMP never makes on-screen readiness fail.
+
+```sh
+python3 tests/permission_guidance.py --serial EMULATOR_SERIAL \
+  --apk build/outputs/apk/release/precise-volume-steps-release.apk \
+  --output /tmp/pvs-permission-guide
+```
 
 | Fixture | Purpose and historical 1.4.11 count |
 |---|---|
@@ -128,6 +171,15 @@ range containing its baseline 4/5. It is not a general real-phone screen-off
 tool. The backend fixture can accept `screen_off=true` directly, but that is
 still synthetic input and not physical routing certification.
 
+For a controlled Bluetooth output-gain comparison, the development test host's
+`HostActivity` accepts `tone=true` with `play=true`. It starts a low-level 440 Hz
+media `AudioTrack`; the default remains the near-silent playback fixture. Use a
+safe native baseline, verify the A2DP route and read the active output thread's
+`Signal power history` from `dumpsys media.audio_flinger`. Compare direct target
+and physical-key runs using the same signal. Stop the service through
+`play=false`, restore the original native volume and keep earbud analog gain
+separate from measured A2DP PCM power.
+
 ## Full input / lifecycle emulator harness
 
 Use only a disposable rootable AOSP emulator. `tests/e2e.py` clears app data,
@@ -141,16 +193,16 @@ Compile its native input helper with the installed NDK:
 NDK_TOOLCHAIN=/path/to/ndk/toolchains/llvm/prebuilt/darwin-x86_64
 "$NDK_TOOLCHAIN/bin/aarch64-linux-android28-clang" \
   tests/native_keys.c -o /tmp/pvs-native-keys
-
 python3 tests/e2e.py --serial emulator-5554 --keys /tmp/pvs-native-keys \
   --apk build/outputs/apk/release/precise-volume-steps-release.apk \
   --output /tmp/pvs-full --phase all
 ```
-
 Run explicit `display`, `locked-boot`, `playback`, `rejected` phases separately;
 `all` covers setup/audio/lifecycle/poll, not every optional phase.
-The playback fixture models a player/media session with 0–150 range and coarse
-native strides; it cannot certify Bilibili or an OEM by itself.
+The playback fixture uses the emulator's actual range. At 0–150 it retains the
+Vivo-scale 30 baseline and 10-index player stride; on stock 0–15 AOSP it uses a
+2-index player stride and computes every expected value from the real range.
+It cannot certify Bilibili or an OEM by itself.
 Historical assertions may expose current platform timing differences; investigate
 and fix tests/code from evidence, never weaken them just to get a passing count.
 
@@ -213,11 +265,112 @@ The HID fixture checks both main/player PID continuity and playback state
 after unlock and around bursts. Player starts use `FLAG_ACTIVITY_SINGLE_TOP`
 so a reused host task receives new playback extras through `onNewIntent`.
 The player requests and abandons audio focus.
+The 1.4.15 fixture additionally tests ten asleep presses and exact reversal in
+both phases. Add `--shizuku-starter /path/to/official-starter` to test the
+selected Shizuku connection stopping/recovering, the page's unmasked status,
+and foreground-notification warning/clearance with the same main PID.
+This option restarts the shell server, not the phone. Built-in reboot/Bilibili
+recording uses `tests/phone_reboot_observer.py`; see cases R15–R18.
+Actual-player external HID uses `tests/playing_app_hid.py` (R19); it checks
+the installed player's exact UID has active media and audits one-second
+settlement after every press, restoring volume without changing player settings.
 Check actual connected service state after every target-main instrumentation.
 Use an external private unlock command for secure keyguards; credentials never
 belong in test sources, reports or logs. Bluetooth remains connected when it
 was connected before testing. Compare route/range and capture built-in buttons
 separately.
+
+## Ordinary helper screen-off checks
+
+Ordinary runs explicitly disable Shizuku. Restore the live keeper/accessibility
+after target-main instrumentation before starting installed-phone input tests:
+
+```sh
+python3 tests/screen_off_hid.py --serial SERIAL \
+  --keys /tmp/pvs-test-hid --preset-dex /tmp/pvs-preset-dex/classes.dex \
+  --steps 50 --backend ordinary --scenario both --baseline 60 \
+  --ten-presses-only --unlock-command 'python3 /path/to/private_unlock.py' \
+  --output /tmp/pvs-ordinary-off
+```
+
+Choose a suitable baseline from the actual range. `--ten-presses-only` retains
+all twenty settled volume assertions even when correction fails; setup, screen,
+playback and process failures still stop the fixture. A retained false assertion
+still fails the final report. `--scenario idle` / `playback` isolate each case.
+Default Shizuku behavior remains unchanged. Actual-player HID also accepts
+`--backend ordinary`; it checks the already-selected mode without changing it.
+
+To reproduce read-only helper input-access evidence, build its test APK with
+`:compatibility-helper:assembleDebugAndroidTest`, install that same-signed APK,
+and run `com.vivo.finevolumesteps.helper.test/roro.stellar.volumesteps.compatibility.HelperInputAccessInstrumentation`
+with `-e nodes /dev/input/eventN,/dev/input/eventM`. Select the observed built-in
+nodes from capabilities; never copy a historical node number blindly. It checks
+permissions and opens/closes nodes in the installed helper UID, without reading
+or injecting keys, granting permissions or installing a privileged helper.
+Remove the introduced test APK and verify provider/accessibility afterward.
+
+Add `-e vivo_events true` for the optional own-UID Vivo `POWER_ID_INPUT`
+registration check. It uses the matched event-service Binder descriptor and
+transactions, counts only the selected event and always attempts unregister
+after registration. No key is injected and no permission is granted.
+On the examined API 36 Vivo, helper UID 10322 was denied with
+`IllegalArgumentException: calling uid not allow`. A returned registration
+alone or completed instrumentation is not proof of key delivery. Preserve
+acquisition failures separately, compare the actual UID, remove the test APK
+and recheck the live provider and other accessibility services.
+
+For autonomous kernel simulation, compile the updated `tests/hid_volume.c` with
+the same NDK command above. Add `--input-source kernel` to the installed-phone
+fixture; it creates BUS_HOST uinput without requiring root on the tested Vivo,
+uses an explicit simulation name/location, and waits five seconds after sleep:
+
+```sh
+python3 tests/screen_off_hid.py --serial SERIAL \
+  --keys /tmp/pvs-test-hid --input-source kernel \
+  --preset-dex /tmp/pvs-preset-dex/classes.dex --steps 50 \
+  --backend ordinary --scenario both --baseline 60 --ten-presses-only \
+  --unlock-command 'python3 /path/to/private_unlock.py' \
+  --output /tmp/pvs-kernel-off
+```
+
+`--sleep-settle-seconds` can select 1–30 seconds; the default USB fixture
+retains its earlier one-second wait. Both sources are simulation, not built-in
+button qualification. The physical recorder rejects GPIO/PMIC-name candidates
+outside a sysfs platform path, including virtual uinput clones. Its
+`--progress --releases 20` options can report releases and finish after the
+required count plus one second, while still retaining the maximum duration.
+
+Actual-player tests also accept `--input-source kernel` and
+`--retain-volume-failures`. The latter records every wrong native/settled
+readback and continues the sequence; missing playback or wrong screen state
+still stops the run, and any retained failure fails the final report.
+
+## Phone-side physical recording with explicit readiness
+
+If a terminal-owned background recorder is interrupted, use the bounded
+phone-side recorder. This is diagnostic-only and may use the user's authorized
+temporary root; neither binary nor shell script belongs in production APKs.
+Build `tests/read_volume_events.c` with the installed NDK, including
+`-Wall -Wextra -Werror`, to `/tmp/pvs-read-volume-events`. Copy it alongside
+`tests/record_physical_volume.sh` in `/data/local/tmp`, using binary name
+`pvs-read-volume-events`. Run the script with duration 1–600 seconds and a
+new output directory beginning `/data/local/tmp/pvs-`.
+
+Open the recorder while the screen is on. Confirm the output directory's
+`ready` file and the native reader's `{"kind":"ready"}` record before asking
+for physical input. Both GPIO/PMIC descriptors are opened read-only and their
+names and platform sysfs paths are checked. All event records are unbuffered.
+Power edges during screen changes remain in the trace; count volume keys
+separately. After the input sequence and at least one second of quiet, create
+the output directory's `stop` file. Wait for `complete`, pull the entire
+directory outside Git, then remove only the introduced device-side files.
+The original log-tag property is restored by cleanup.
+
+Check complete down/up pairs, screen state around each pair, actual system
+readback, main/helper readiness and player ownership before judging behavior.
+A missing first DOWN is incomplete acquisition, even when the final volume
+matches an expected endpoint. Do not change APKs or run target instrumentation
+while the physical recorder is active.
 
 ## Passive installed-phone checks
 

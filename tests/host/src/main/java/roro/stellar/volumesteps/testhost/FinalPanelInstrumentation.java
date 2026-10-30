@@ -51,6 +51,7 @@ public final class FinalPanelInstrumentation extends Instrumentation {
         Bundle result = new Bundle();
         SharedPreferences settings = null;
         boolean shizuku = false;
+        String operatingMode = null;
         int saved = -1;
         String appOp = null;
         try {
@@ -66,9 +67,11 @@ public final class FinalPanelInstrumentation extends Instrumentation {
             settings = target.createDeviceProtectedStorageContext()
                     .getSharedPreferences("volume_step_settings", 0);
             shizuku = settings.getBoolean("shizuku_enabled", false);
+            operatingMode = settings.getString("operating_mode", null);
             SharedPreferences preferences = settings;
             runOnMainSync(() -> {
-                preferences.edit().putBoolean("shizuku_enabled", false).commit();
+                preferences.edit().putString("operating_mode", "ASSISTANT")
+                        .putBoolean("shizuku_enabled", false).commit();
                 target.startForegroundService(new Intent().setClassName(
                         packageName, packageName + ".VolumeKeeperService"));
             });
@@ -179,8 +182,13 @@ public final class FinalPanelInstrumentation extends Instrumentation {
                 if (settings != null) {
                     SharedPreferences preferences = settings;
                     boolean enabled = shizuku;
-                    runOnMainSync(() -> preferences.edit()
-                            .putBoolean("shizuku_enabled", enabled).commit());
+                    String savedMode = operatingMode;
+                    runOnMainSync(() -> {
+                        SharedPreferences.Editor edit = preferences.edit().putBoolean("shizuku_enabled", enabled);
+                        if (savedMode == null) edit.remove("operating_mode");
+                        else edit.putString("operating_mode", savedMode);
+                        edit.commit();
+                    });
                 }
             } catch (Exception exception) {
                 result.putString("restore_error", exception.toString());
