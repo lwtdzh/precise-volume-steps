@@ -49,14 +49,15 @@ def main():
         all_pass = all_pass and success
         def cell(value):
             return str(value).replace("|", "\\|").replace("\n", " ")
+        name = str(path.parent.name + "/" + path.name) if path.name == "result.json" else path.name
         lines.append(
-            f"| {cell(path.name)} | {cell(run.get('serial', run.get('device', 'unknown')))} / "
+            f"| {cell(name)} | {cell(run.get('serial', run.get('device', 'unknown')))} / "
             f"{cell(run.get('api', 'unknown'))} | "
             f"{cell(run.get('input', 'input source not recorded'))} | "
             f"{passed}/{len(tests)} | {'PASS' if success else 'FAIL'} |")
         for test in tests:
             if test.get("pass") is not True:
-                failures.append(f"- {path.name}: {test.get('test')} — {test.get('detail', '')}")
+                failures.append(f"- {path.name}: {test.get('test')} — {test.get('detail', '')}".rstrip())
         for error in run.get("errors", []):
             failures.append(f"- {path.name}: {error}")
     lines += ["", "Original failed runs remain separate from repeats. "

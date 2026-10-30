@@ -146,8 +146,10 @@ class PermissionGuideTest:
                    title is not None and title.get("text") == "权限设置向导")
 
         actions, texts = self.collect_guide()
-        self.check("guide explains DUMP is screen-off only",
-                   any("未授权不会影响亮屏调节" in text for text in texts), sorted(texts))
+        self.check("guide explains locked input and unlocked fallback",
+                   any("锁屏和熄屏按键监听" in text
+                       and "未授权不会影响已解锁的亮屏调节" in text
+                       for text in texts), sorted(texts))
         self.check("all generic permission entrances are present",
                    EXPECTED_ACTIONS.issubset(actions), sorted(actions))
         self.check("all permission entrances are enabled and clickable",

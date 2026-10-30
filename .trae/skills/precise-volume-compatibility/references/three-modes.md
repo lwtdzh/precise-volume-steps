@@ -115,3 +115,50 @@ Binder. On the Vivo, Shizuku→assistant recovered
 `checked=true, available=true, registered=true`; companion 50/64-step runs each
 passed 105 checks. Shizuku volume, raw-input and Bluetooth-mask code did not
 change from the completed physical build.
+
+## Lit keyguard in 1.5.1
+
+Vivo V2419A/API 36 hid the main application's TYPE_APPLICATION_OVERLAY
+window while keyguard was locked: WindowManager reported
+`mPolicyVisibility=false` and `isVisible=false`. Root external-HID input
+still changed actual native volume from 24 to 21; an invisible panel did not
+establish a failed write.
+
+`VolumeOverlayController.flushRender` now selects the already-connected
+accessibility service while keyguard is locked. Its TYPE_ACCESSIBILITY_OVERLAY
+window can appear on the lit keyguard. Existing context migration removes the
+old window before adding the new one; unlocked rendering keeps the normal
+permission-based choice. Do not wake/unlock the device or substitute a fake
+third-row target. OEM volume UI may remain visible independently.
+
+Helper 1.4's `InputDumpMonitor` reads when prewarmed, noninteractive or
+keyguard-locked. A screen-on broadcast must not stop a locked reader.
+ACTION_USER_PRESENT and the reader's next state check stop idle monitoring
+after unlock unless wireless-playback prewarm is still needed.
+`VolumeAdjustmentController.companionInputOwnsKeys` uses the same locked/off
+condition for raw gesture ownership and accessibility deduplication.
+
+The helper's strict EventHub parser observes verified built-in PMIC/GPIO
+devices only. On API 29+, accessibility callbacks from an identified external
+InputDevice remain eligible in assistant mode. Suppressing those callbacks
+merely because the built-in helper listener is ready drops external keys.
+The tested Vivo's InputReader classifies both gpio-keys and mtk-pmic-keys
+as `IsExternal: false`; record device classification when testing other firmware.
+Shizuku and Root retain their existing dedicated raw-device ownership.
+Unknown/synthetic device IDs do not bypass built-in deduplication.
+
+API 33 AOSP EventHub dumps lack the verified SysfsDevicePath and pressed
+KeyState required by this helper parser, even when an emulator device is
+named gpio-keys. An attempted emulator helper lifecycle instrumentation failed
+with IllegalArgumentException; keep that evidence, and do not weaken the
+physical-device parser to make it pass. The supported phone's actual helper
+lifecycle is checked separately in `tests/lockscreen_keys.py`.
+
+Main-service helper-health diagnostics are cached for up to two seconds.
+Tests must wait for refreshed lifecycle diagnostics before assessing whether
+the reader remains active. This settles a status check; it does not establish
+immediate physical-button receipt or eliminate Bluetooth coarse transients.
+The new locked-screen external-HID fixture records real screen/keyguard state,
+idle/playback, exact readback and reversal, visible window type, later
+overwrites, passive presets and restoration for each selected mode.
+Built-in buttons and reboot remain separate requirements.

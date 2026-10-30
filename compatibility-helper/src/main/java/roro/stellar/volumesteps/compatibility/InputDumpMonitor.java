@@ -2,6 +2,7 @@ package roro.stellar.volumesteps.compatibility;
 
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.app.KeyguardManager;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.PowerManager;
@@ -16,7 +17,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
-/** Screen-off-only InputManager state reader. A listener death stops all work. */
+/** Locked/screen-off InputManager state reader. A listener death stops all work. */
 final class InputDumpMonitor {
     private static final int POLL_MS = 25;
     private static final int MAX_DUMP_BYTES = 2 * 1024 * 1024;
@@ -58,7 +59,7 @@ final class InputDumpMonitor {
                 return false;
             }
             error = null;
-            if (prewarm || !context.getSystemService(PowerManager.class).isInteractive()) {
+            if (shouldReadInput()) {
                 startLocked();
             }
             return true;
@@ -75,7 +76,8 @@ final class InputDumpMonitor {
 
     void screenChanged(boolean interactive) {
         synchronized (lock) {
-            if (interactive && !prewarm) {
+            if (interactive && !prewarm
+                    && !context.getSystemService(KeyguardManager.class).isKeyguardLocked()) {
                 stopLocked();
             } else if (listener != null) {
                 startLocked();
@@ -86,12 +88,17 @@ final class InputDumpMonitor {
     void setPrewarm(boolean enabled) {
         synchronized (lock) {
             prewarm = enabled;
-            if (prewarm || !context.getSystemService(PowerManager.class).isInteractive()) {
+            if (shouldReadInput()) {
                 if (listener != null) startLocked();
             } else {
                 stopLocked();
             }
         }
+    }
+
+    private boolean shouldReadInput() {
+        return prewarm || !context.getSystemService(PowerManager.class).isInteractive()
+                || context.getSystemService(KeyguardManager.class).isKeyguardLocked();
     }
 
     boolean active() {
@@ -157,6 +164,10 @@ final class InputDumpMonitor {
                 synchronized (lock) {
                     if (!running || closed || listener == null
                             || runGeneration != token) return;
+                    if (!shouldReadInput()) {
+                        stopLocked();
+                        return;
+                    }
                 }
                 long before = SystemClock.uptimeMillis();
                 Map<String, Set<String>> current = InputDumpKeyState.parse(dump(service));

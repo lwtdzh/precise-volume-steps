@@ -1,6 +1,7 @@
 package roro.stellar.volumesteps;
 
 import android.content.Context;
+import android.app.KeyguardManager;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
@@ -253,8 +254,12 @@ final class VolumeOverlayController {
         if (!attached && !attachRequested) {
             return;
         }
-        Context owner = Settings.canDrawOverlays(service) ? service
-                : FineVolumeAccessibilityService.connectedService();
+        Context accessibility = FineVolumeAccessibilityService.connectedService();
+        // Application overlays are hidden behind keyguard on the tested firmware.
+        // Use the already-bound accessibility window without waking or unlocking.
+        Context owner = service.getSystemService(KeyguardManager.class).isKeyguardLocked()
+                && accessibility != null ? accessibility
+                : Settings.canDrawOverlays(service) ? service : accessibility;
         if (owner == null) {
             attachRequested = false;
             lastError = "Floating-window permission missing; accessibility disconnected";

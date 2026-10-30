@@ -163,9 +163,13 @@ final class VolumeAdjustmentController {
         if (code != KeyEvent.KEYCODE_VOLUME_UP && code != KeyEvent.KEYCODE_VOLUME_DOWN) {
             return;
         }
-        // Raw input owns noninteractive presses when available. The firmware may
-        // also send accessibility callbacks for the same press.
-        if (nonInteractive() && (privilegedInputReady() || companionInputOwnsScreenOff())) return;
+        // Raw input owns noninteractive presses when available. The companion
+        // observes built-in keys only; external keys still need accessibility.
+        android.view.InputDevice device = event.getDevice();
+        boolean external = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+                && device != null && device.isExternal();
+        if (nonInteractive() && (privilegedInputReady()
+                || (companionInputOwnsKeys() && !external))) return;
         lastKeyTime = SystemClock.uptimeMillis();
         lastKeyAction = event.getAction() == KeyEvent.ACTION_DOWN ? "down"
                 : event.getAction() == KeyEvent.ACTION_UP ? "up" : "other";
@@ -770,7 +774,7 @@ final class VolumeAdjustmentController {
 
     private boolean explicitInputReady(Gesture active) {
         return active.mode == VolumeStepSettings.mode(context)
-                && (active.companionInput ? companionInputOwnsScreenOff()
+                && (active.companionInput ? companionInputOwnsKeys()
                 : active.mode == OperatingMode.ROOT ? root.inputReady() : rawKeys.ready());
     }
 
@@ -778,9 +782,8 @@ final class VolumeAdjustmentController {
         return root.inputReady() || rawKeys.ready();
     }
 
-    private boolean companionInputOwnsScreenOff() {
-        return compatibility.inputReady()
-                && !context.getSystemService(PowerManager.class).isInteractive();
+    private boolean companionInputOwnsKeys() {
+        return compatibility.inputReady() && nonInteractive();
     }
 
     private boolean ordinaryIdleFallbackEligible() {

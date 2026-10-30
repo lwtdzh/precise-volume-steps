@@ -49,7 +49,7 @@
     <string name="permission_guide_button">权限设置向导</string>
     <string name="permission_guide_title">权限设置向导</string>
     <string name="permission_guide_summary_ready">亮屏音量修正所需权限已就绪。下面仍可检查系统后台设置；助手熄屏授权只影响屏幕关闭后的实体音量键。</string>
-    <string name="permission_guide_summary_missing">请按下面的入口逐项设置。无障碍服务负责亮屏时的音量键；助手 DUMP 授权只用于熄屏场景，未授权不会影响亮屏调节。</string>
+    <string name="permission_guide_summary_missing">请按下面的入口逐项设置。无障碍服务负责解锁后的音量键，并让面板显示在锁屏界面。助手 DUMP 授权用于锁屏和熄屏按键监听，未授权不会影响已解锁的亮屏调节。</string>
     <string name="permission_guide_later">稍后设置</string>
     <string name="permission_status_ready">已就绪</string>
     <string name="permission_status_required">需要设置</string>
@@ -164,5 +164,5 @@
     <string name="compatibility_grant_permission_required">请先在 Shizuku 中允许精准音量</string>
     <string name="compatibility_grant_permission_denied">未获得 Shizuku 授权</string>
     <string name="shizuku_open">打开 Shizuku</string>
-    <string name="compatibility_help">安装随本应用提供的“精准音量兼容助手（独立应用）”，然后在助手的系统权限设置中允许“关联启动”。主应用运行时会自动连接助手，后台音量写入无需 root 或 Shizuku。\n\n部分已验证的 vivo 固件会在熄屏时拦截无障碍按键。助手 1.2 可在屏幕关闭期间读取物理音量键与电源键状态。点击页面上的“设置助手熄屏授权”，可以复制 USB ADB 命令，或使用已经启动的 Shizuku 完成一次授权：\n\nadb shell pm grant com.vivo.finevolumesteps.helper android.permission.DUMP\n\nShizuku 只负责完成这次授权，不会自动切换音量兼容模式。授权在应用和手机重启后保留；卸载助手后需要重新授权。监听只在普通模式且屏幕关闭时运行；未授权不会影响亮屏时由无障碍服务处理音量键。通话期间继续交给系统。\n\n这是独立开发的兼容助手，与 vivo 无关联。系统更新可能改变兼容性。连接失败时，请检查助手的关联启动权限。</string>
+    <string name="compatibility_help">安装随本应用提供的“精准音量兼容助手（独立应用）”，然后在助手的系统权限设置中允许“关联启动”。主应用运行时会自动连接助手，后台音量写入无需 root 或 Shizuku。\n\n部分已验证的 vivo 固件会在锁屏或熄屏时拦截无障碍按键。助手 1.4 可在锁屏界面亮屏和屏幕关闭期间读取物理音量键与电源键状态。点击页面上的“设置助手熄屏授权”，可以复制 USB ADB 命令，或使用已经启动的 Shizuku 完成一次授权：\n\nadb shell pm grant com.vivo.finevolumesteps.helper android.permission.DUMP\n\nShizuku 只负责完成这次授权，不会自动切换音量兼容模式。授权在应用和手机重启后保留；卸载助手后需要重新授权。监听用于助手模式下的锁屏和熄屏按键；无线媒体播放时会提前准备监听。未授权时，已解锁的亮屏按键仍由无障碍服务处理。通话期间继续交给系统。\n\n这是独立开发的兼容助手，与 vivo 无关联。系统更新可能改变兼容性。连接失败时，请检查助手的关联启动权限。</string>
 </resources>

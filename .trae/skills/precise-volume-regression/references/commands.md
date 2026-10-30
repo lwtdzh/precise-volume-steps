@@ -87,6 +87,26 @@ adb -s SERIAL install -r tests/host/build/outputs/apk/debug/precise-volume-steps
 adb -s SERIAL install -r tests/ui/build/outputs/apk/debug/precise-volume-steps-test-ui-debug.apk
 ```
 
+For lit-keyguard external input, use `tests/lockscreen_keys.py` on a selected
+phone. Supply an existing authorized HID key tool and passive preset dex.
+Start awake/unlocked with playback paused; the fixture preserves preferences,
+volume and other accessibility services and creates controlled playback.
+
+```sh
+python3 tests/lockscreen_keys.py --serial PHONE_SERIAL \
+  --keys /tmp/authorized-hid --input-kind uhid --preset-dex /tmp/preset/classes.dex \
+  --backend ASSISTANT --steps 50 --output /tmp/pvs-locked-assistant-50
+```
+
+Use `--input-kind uhid` for emulated external keys, or `usb-hid` for a real USB
+HID endpoint; do not report a `/dev/uhid` tool as a physical external keyboard.
+Repeat ASSISTANT/SHIZUKU/ROOT with even and uneven counts. A secured phone needs
+an explicitly authorized private `--unlock-command`; keep its implementation,
+credentials and raw UI captures outside Git. The command is never retained in
+reports. No unlock helper is needed on an unsecured disposable device.
+Helper status refresh can take two seconds; the fixture waits for settled
+health readback. External HID does not establish built-in physical delivery.
+
 Vivo may require observed installer acknowledgement taps; use the compatibility
 skill's device procedure. Do not interpret a hanging installer as completed.
 

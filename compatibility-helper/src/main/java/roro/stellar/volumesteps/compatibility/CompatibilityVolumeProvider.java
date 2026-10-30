@@ -25,7 +25,7 @@ public final class CompatibilityVolumeProvider extends ContentProvider {
     private boolean receiverRegistered;
     private final BroadcastReceiver screen = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
-            input.screenChanged(Intent.ACTION_SCREEN_ON.equals(intent.getAction()));
+            input.screenChanged(!Intent.ACTION_SCREEN_OFF.equals(intent.getAction()));
         }
     };
     private final IVolumeCompatibility.Stub binder = new IVolumeCompatibility.Stub() {
@@ -106,6 +106,7 @@ public final class CompatibilityVolumeProvider extends ContentProvider {
         IntentFilter filter = new IntentFilter();
         filter.addAction(Intent.ACTION_SCREEN_ON);
         filter.addAction(Intent.ACTION_SCREEN_OFF);
+        filter.addAction(Intent.ACTION_USER_PRESENT);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             getContext().registerReceiver(screen, filter, Context.RECEIVER_EXPORTED);
         } else {

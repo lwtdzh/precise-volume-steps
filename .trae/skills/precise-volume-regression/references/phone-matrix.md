@@ -37,6 +37,7 @@ and after input and compare the third row to it.
 | P20 | Speaker, wired endpoint if available, Bluetooth connected/disconnected with active and paused media | Read actual new range/stream and endpoint result; avoid invented maxima or inherited origin across routes. Bluetooth remains historically unverified. |
 | P21 | Update on Vivo with risk acknowledgement; screen kept awake during installation; restore service afterward | ADB observes current checkbox/confirm bounds, install Success and matching APK hash. No request for manual confirmation of already authorized install. Preserve timeout/accessibility; avoid blindly tapping. |
 | P22 | Required permission denied/restricted, self-start UI absent, helper without 关联启动 | Clear setup guidance and actual unready state; no fake connected indication. Diagnose startup record rather than equating standard permission with OEM UI permission. |
+| P23 | Lit locked keyguard, ASSISTANT/SHIZUKU/ROOT, idle and actual-player playback, 50/64 steps; short physical `--++`, hold/reverse, unlock with a visible panel | Built-in keys reach the selected backend once, exact native targets remain settled. App panel uses the connected accessibility service above keyguard, retains three real rows and one bar; OEM panel observed separately. Assistant reader survives screen-on while locked and stops after idle unlock without prewarm. External HID requires its own record; helper readiness must not suppress external accessibility keys. |
 
 P03/P04/P05 are concrete regression anchors, not exclusive supported parameters.
 Exercise other actual ranges with analogous values and retain exhaustive math
@@ -68,6 +69,6 @@ accessibility list and actual connected services. Remove temporary installed tes
 packages or restore ones present before the session. Inspect helper and main
 connectivity, no pending write/wake lock, and stable native readback afterward.
 
-Report P01–P22 as pass/fail/not-run with backend and input source. Automated
+Report P01–P23 as pass/fail/not-run with backend and input source. Automated
 fixture pass counts supplement these rows; they cannot replace physical tests.
 Keep unverified screen-off/reboot/Bluetooth cases prominent in a vendor profile.
