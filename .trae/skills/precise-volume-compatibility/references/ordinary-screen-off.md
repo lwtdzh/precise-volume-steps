@@ -1913,3 +1913,51 @@ and Precise Volume Steps actually bound. Earbud-internal analog gain remains
 unqueryable while Absolute Volume is false; the measured result is the final PCM
 power delivered to the A2DP output path plus the absence of a remote-volume
 command.
+
+## Screen-off flashlight shortcut investigation, 2026-10-30
+
+The user reported the torch turning on after repeated screen-off volume presses
+while Precise Volume Steps was enabled. The current Vivo V2419A / API 36
+firmware was
+`vivo/PD2419/PD2419:16/BP2A.250605.031.A3_V000L1/compiler260529100608:user/release-keys`.
+Main 1.5.1 and helper 1.4 were installed; assistant mode was selected with
+helper DUMP available, Shizuku disabled, 50 steps and media-only scope.
+
+Before any settings changes, camera-service history contained three torch-on
+events attributed to SystemUI. SmartKey startup at the corresponding times and
+the inspected settings page identified the enabled screen-off long-volume-down
+shortcut with the flashlight function selected. Call/message/calendar flash
+reminders were disabled. Firmware inspection established the path:
+`VivoWMPHook.mVolumeLongPressRunnable` starts the SmartKey service; SmartKey
+requests VivoDaemonService's flashlight operation; SystemUI applies the torch.
+The helper only observes key state and does not consume this OEM gesture.
+
+A bounded emulated external USB HID comparison reproduced torch-on with an
+1100 ms volume-down hold. Six 60 ms presses with 300 ms between them did not
+reproduce torch-on. After disabling only `smartkey_primary_switch` through the
+inspected native settings switch, both sequences left torch state at zero and
+added no camera-service torch-on events. The independent double-press camera
+setting remained unchanged.
+
+Retain the original incomplete comparison and setup failures. An initial
+“app disabled” label was invalid: tapping the middle of Vivo's native Switch
+text did not change its checked state or stop the keeper. Such a label cannot
+establish an enabled/disabled comparison. Recheck the actual switch thumb,
+checked state and keeper shutdown before accepting a rerun. Likewise, wait for
+the settings readback after changing the shortcut switch; the first immediate
+readback raised a setup error before the change settled.
+
+The corrected rerun confirmed both the checkbox and keeper shutdown: with
+`keeper_running=false` and the shortcut enabled, the same 1100 ms emulated
+external hold still turned on the torch through SystemUI. With the keeper
+running and the shortcut disabled, it stayed off. Final state retained the
+disabled shortcut, restored native volume 141/150, 50-step media-only assistant
+mode and both connected accessibility services. Temporary phone HID/preset
+tools were removed; main, helper and the pre-existing test host APKs were unchanged.
+
+This is a phone-settings conflict diagnosis, not a new APK release or proof of
+the user's built-in short-press sequence. Preserve the intentionally disabled
+flashlight shortcut as the requested fix, restore native volume and app state,
+and verify both GKD and Precise Volume Steps are actually bound. P24 remains a
+separate physical-button verification requirement; playback-dependent shortcut
+eligibility and the original short-press timing still require physical evidence.
