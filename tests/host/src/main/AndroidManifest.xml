@@ -24,6 +24,8 @@
         android:targetPackage="roro.stellar.volumesteps" />
     <instrumentation android:name=".CompatibilityGrantUiInstrumentation"
         android:targetPackage="roro.stellar.volumesteps" />
+    <instrumentation android:name=".ShizukuStatusInstrumentation"
+        android:targetPackage="roro.stellar.volumesteps" />
     <instrumentation android:name=".MediaSessionInstrumentation"
         android:targetPackage="roro.stellar.volumesteps.testhost" />
     <instrumentation android:name=".OperatingModesInstrumentation"

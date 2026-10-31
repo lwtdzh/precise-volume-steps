@@ -104,10 +104,11 @@ Preserve bounded confirmation and actual failed-result display.
 ## Shizuku remains separate
 
 `ShizukuVolumeBridge` binds `VolumeShellService` only with a running v11+
-Shizuku, permission granted and UID 2000 (ADB/wireless debugging). Root-started
-Shizuku is deliberately rejected by the current implementation.
-The shell user service reflects Android's audio Binder and uses
-`com.android.shell`. Its real shell UID is checked at construction.
+Shizuku, permission granted and UID 0 (Root) or 2000 (ADB/wireless debugging).
+Earlier versions deliberately rejected root-started Shizuku; the 2026-10-31
+authorization fix accepts both official server identities.
+The user service reflects Android's audio Binder and uses `android` for root
+or `com.android.shell` for shell. Its actual UID is checked at construction.
 It shares expected-current, expiry, supported-stream and no-repeat safeguards.
 
 Keep `ShizukuVolumeBridge.java`, `VolumeShellService.java` and
@@ -223,7 +224,8 @@ coarse preset with the same shape remains observationally ambiguous; see
 `VolumeKeyShellService`, `IVolumeKeyShell`, `IVolumeKeyListener` and
 `ShizukuKeyBridge` form a separate optional read-only backend. Existing
 `ShizukuVolumeBridge`, `VolumeShellService` and `IVolumeShell` are unchanged.
-UID 2000, explicit Shizuku selection and authorization are required.
+This release required UID 2000, explicit Shizuku selection and authorization.
+The later authorization fix also supports UID 0; selection and grant checks remain.
 Bounded `getevent -lp` discovers dedicated volume/power nodes; keyboard, touch,
 relative-motion and switch devices are excluded. Per-node blocking readers
 pass only parsed volume/power events, never raw input text. A standalone power

@@ -189,6 +189,18 @@ class PermissionGuideTest:
         nodes = self.device.ui()
         self.check("accessibility entrance opens Android settings",
                    any(node.get("package") == "com.android.settings" for node in nodes))
+        # AOSP reserves the detail activity for system/installer apps. Its
+        # public list must still scroll to our service without a manual swipe.
+        def visible_service(node):
+            bounds = list(map(int, re.findall(r"-?\d+", node.get("bounds", ""))))
+            return (node.get("package") == "com.android.settings"
+                    and "精准音量服务" in node.get("text", "")
+                    and len(bounds) == 4 and min(bounds) >= 0
+                    and bounds[2] > bounds[0] and bounds[3] > bounds[1])
+
+        self.check("accessibility entrance locates this service without scrolling",
+                   any(visible_service(node) for node in nodes),
+                   [node.get("text") for node in nodes])
 
 
 def main():

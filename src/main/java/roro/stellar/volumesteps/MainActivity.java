@@ -58,8 +58,11 @@ public final class MainActivity extends Activity {
     private boolean appSetupPermissionPending;
     private boolean permissionRequestInFlight;
     private boolean compatibilityGrantPermissionPending;
+    private final Shizuku.OnBinderReceivedListener shizukuReceived = this::refreshShizukuStatus;
+    private final Shizuku.OnBinderDeadListener shizukuDead = this::refreshShizukuStatus;
     private final Shizuku.OnRequestPermissionResultListener compatibilityGrantPermission =
             (requestCode, grantResult) -> {
+                refreshShizukuStatus();
                 if (requestCode == REQUEST_SHIZUKU && appSetupPermissionPending) {
                     appSetupPermissionPending = false;
                     if (grantResult == PackageManager.PERMISSION_GRANTED
@@ -99,12 +102,18 @@ public final class MainActivity extends Activity {
         Shizuku.addRequestPermissionResultListener(compatibilityGrantPermission, handler);
         configureSystemBars();
         setContentView(createContent());
+        Shizuku.addBinderReceivedListenerSticky(shizukuReceived, handler);
+        Shizuku.addBinderDeadListener(shizukuDead, handler);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         VolumeKeeperService.start(this);
+        VolumeAdjustmentController controller = VolumeKeeperService.controller();
+        if (controller != null && VolumeStepSettings.isShizukuEnabled(this)) {
+            controller.connectShizuku();
+        }
         refreshServiceStatus();
         refreshBackgroundStatus();
         handler.removeCallbacks(volumeRefresh);
@@ -119,7 +128,10 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        Shizuku.removeBinderReceivedListener(shizukuReceived);
+        Shizuku.removeBinderDeadListener(shizukuDead);
         Shizuku.removeRequestPermissionResultListener(compatibilityGrantPermission);
+        handler.removeCallbacksAndMessages(null);
         compatibilityGrant.close();
         setupShell.close();
         super.onDestroy();
@@ -366,10 +378,20 @@ public final class MainActivity extends Activity {
             refreshCompatibilityGrantButton();
             return;
         }
-        int status = controller == null ? R.string.shizuku_paused : controller.shizukuStatus();
-        shizukuStatus.setText(status);
+        int authorization = ShizukuVolumeBridge.authorizationStatus();
+        if (authorization != R.string.shizuku_authorized) {
+            shizukuStatus.setText(authorization);
+            shizukuStatus.setTextColor(COLOR_ERROR);
+            return;
+        }
+        int status = controller == null
+                ? VolumeStepSettings.isEnabled(this) ? R.string.shizuku_paused
+                        : R.string.shizuku_correction_off
+                : controller.shizukuStatus();
+        shizukuStatus.setText(getString(R.string.shizuku_authorized_status, getString(status)));
         shizukuStatus.setTextColor(status == R.string.shizuku_ready
-                ? COLOR_ACCENT : COLOR_ERROR);
+                ? COLOR_ACCENT : status == R.string.shizuku_correction_off
+                        || status == R.string.shizuku_connecting ? COLOR_SECONDARY : COLOR_ERROR);
     }
 
     private void refreshCompatibilityGrantButton() {
@@ -487,7 +509,8 @@ public final class MainActivity extends Activity {
         try {
             if (!Shizuku.pingBinder()) {
                 showCompatibilityGrantUnavailable(R.string.shizuku_not_running);
-            } else if (Shizuku.isPreV11() || Shizuku.getUid() != 2000) {
+            } else if (Shizuku.isPreV11()
+                    || !ShizukuServerIdentity.supported(Shizuku.getUid())) {
                 showCompatibilityGrantUnavailable(R.string.shizuku_unsupported);
             } else if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
                 grantCompatibilityWithAuthorizedShizuku();
@@ -552,7 +575,8 @@ public final class MainActivity extends Activity {
         try {
             if (!Shizuku.pingBinder()) {
                 openShizuku();
-            } else if (Shizuku.isPreV11() || Shizuku.getUid() != 2000) {
+            } else if (Shizuku.isPreV11()
+                    || !ShizukuServerIdentity.supported(Shizuku.getUid())) {
                 new AlertDialog.Builder(this).setMessage(R.string.shizuku_unsupported)
                         .setPositiveButton(android.R.string.ok, null).show();
             } else if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
@@ -900,15 +924,33 @@ public final class MainActivity extends Activity {
     }
 
     private void openAccessibilitySettings() {
+        String component = new ComponentName(this, FineVolumeAccessibilityService.class)
+                .flattenToString();
         Intent details = new Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS")
-                .putExtra("android.provider.extra.ACCESSIBILITY_SERVICE_COMPONENT_NAME",
-                        new ComponentName(this, FineVolumeAccessibilityService.class)
-                                .flattenToString());
+                .putExtra(Intent.EXTRA_COMPONENT_NAME, component);
         try {
             startActivity(details);
+            return;
         } catch (RuntimeException exception) {
-            startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+            // AOSP reserves this activity for system/installer apps.
         }
+        if (CompatibilityVolumeBridge.supportedDevice()) {
+            try {
+                // Vivo exposes a fragment-validated settings entry. The system
+                // detail fragment still enforces administrator/AppOp restrictions.
+                startActivity(new Intent().setComponent(new ComponentName(
+                        "com.android.settings", "com.vivo.settings.VivoSubSettings"))
+                        .putExtra(":settings:show_fragment",
+                                "com.android.settings.accessibility.AccessibilityDetailsSettingsFragment")
+                        .putExtra(Intent.EXTRA_COMPONENT_NAME, component));
+                return;
+            } catch (RuntimeException ignored) { }
+        }
+        Bundle arguments = new Bundle();
+        arguments.putString(":settings:fragment_args_key", component);
+        startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                .putExtra(":settings:fragment_args_key", component)
+                .putExtra(":settings:show_fragment_args", arguments));
     }
 
     private void refreshCurrentVolume() {

@@ -34,7 +34,7 @@ public final class VolumeKeyShellService extends IVolumeKeyShell.Stub {
     private final IBinder.DeathRecipient died = this::stop;
 
     public VolumeKeyShellService() {
-        this(false);
+        this(Process.myUid() == 0);
     }
 
     VolumeKeyShellService(boolean root) {

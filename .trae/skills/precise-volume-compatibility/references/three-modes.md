@@ -11,12 +11,14 @@ migrate without switching an existing Shizuku installation to assistant mode.
 UID 0 and accepts Binder calls only from the main application's exact UID.
 Clear the caller identity only after that check and restore it in `finally`.
 The privileged service shares the bounded volume and dedicated input reader
-implementations with Shizuku, using explicit authorized constructors. Existing
-public Shizuku constructors remain restricted to shell UID 2000.
+implementations with Shizuku, using explicit authorized constructors. Public
+Shizuku constructors accept the official server identities, root UID 0 and
+shell UID 2000, and reject other UIDs.
 
 Root is an optional, explicitly selected production backend. Assistant and
-Shizuku do not request Root. Root requires neither a running Shizuku server nor
-the companion package. Leaving Root mode disconnects its Binder, invalidates
+Shizuku do not invoke `su`; an already authorized root-started Shizuku server
+is supported through the Shizuku API. Root requires neither a running Shizuku
+server nor the companion package. Leaving Root mode disconnects its Binder, invalidates
 queued writes and rejects stale callbacks. An existing authorization may
 reconnect on startup; the Root manager controls whether it remains valid.
 
@@ -163,6 +165,39 @@ idle/playback, exact readback and reversal, visible window type, later
 overwrites, passive presets and restoration for each selected mode.
 Built-in buttons and reboot remain separate requirements.
 
+## Authorization display and accessibility entry, 2026-10-31
+
+The selected Shizuku page previously took all status from the volume controller.
+When correction was disabled or the keeper was absent, it displayed only
+“Shizuku 兼容模式已暂停”, hiding the application's actual grant. The page now
+reads the running Shizuku Binder and permission independently, displays
+“Shizuku 已授权” together with the actual correction/connection state, and
+refreshes on Binder receipt, death, permission result and activity resume.
+An absent server still reports “Shizuku 未运行”; a saved manager grant cannot
+establish a running server after reboot. No grant is fabricated or requested
+by the status refresh. The service-owned write/raw bridges retain their checks.
+
+`ACCESSIBILITY_DETAILS_SETTINGS` expects the flattened service in
+`Intent.EXTRA_COMPONENT_NAME`, not the former invented provider extra.
+On AOSP and the examined Vivo firmware, that activity requires
+`OPEN_ACCESSIBILITY_DETAILS_SETTINGS` (`signature|installer`); adding a
+uses-permission does not grant it to this app.
+
+The examined Vivo Settings APK exposes `com.vivo.settings.VivoSubSettings`.
+Launching its validated `AccessibilityDetailsSettingsFragment` with
+`:settings:show_fragment` and `Intent.EXTRA_COMPONENT_NAME` opens the exact
+service detail. That system fragment still checks device policy and restricted
+settings. Try this only on Vivo/iQOO after the generic detail activity fails;
+retain the public accessibility-list fallback with
+`:settings:fragment_args_key` both at top level and inside
+`:settings:show_fragment_args`. Other vendor detail pages remain unverified.
+
+`ShizukuStatusInstrumentation` runs only on a disposable emulator and verifies
+the real server/permission plus Activity status while correction is disabled.
+Use the real Shizuku authorization dialog: granting the legacy
+`moe.shizuku.manager.permission.API_V23` with `pm grant` alone did not change
+the server's own permission readback. Preserve that failed setup separately.
+
 ## Lit-keyguard latency investigation after 1.5.1
 
 The locked raw-input path inherited the screen-off 300 ms release wait.
@@ -226,3 +261,50 @@ passed all 17 locked raw assertions, including blank status during a deliberatel
 late coarse overwrite. Main unit tests passed 54/54; emulator final-frame and
 layout checks passed 13/13 and 56/56. This follow-up changes panel state and text
 only; the earlier physical input and multi-second latency limitations remain.
+
+## Root-started Shizuku authorization fix, 2026-10-31
+
+On V2419A/API 36, the official Shizuku 13.6.0 server ran under UID 0 and the
+main application was already authorized. The helper grant action nevertheless
+showed “请使用 ADB 或无线调试启动的 Shizuku” with “打开 Shizuku”.
+The activity, volume bridge, input bridge and public user-service constructors
+accepted only UID 2000. The failure was an unsupported-server check, not a
+missing user grant.
+
+`ShizukuServerIdentity` now accepts UID 0 and 2000; app authorization and v11+
+checks remain. Public volume/input services derive their permitted identity
+from the actual process UID. The explicit internal Root constructors still
+require their requested UID. Permission setup and helper grant services accept
+both official identities. Existing volume calls already chose `android` for
+UID 0 and `com.android.shell` for UID 2000. This change does not invoke `su`
+from Shizuku or assistant mode.
+
+Test APK SHA-256:
+`97f6335af826e64a01e1840d66b536829e210ec74340e330b3e3e792afe7c482`.
+The phone installed these exact bytes. Selecting Shizuku showed “已授权” and
+both services connected as UID 0; raw discovery found two devices. Returning
+to the original assistant mode and tapping the helper grant action confirmed
+user 0 DUMP granted and assistant input available/registered. Current playback
+remained active and native media volume remained 120/150, with 50 steps.
+Accessibility was already off and remained off; no physical keys were injected.
+
+The API 33 emulator used actual official servers under both UIDs.
+Authorization-with-correction-off passed 6/6 per identity; synthetic background
+volume suites passed 102/102 at both 5 and 7 steps per identity. Root permission
+setup executed its fixed commands and connected accessibility on the successful
+6/6 rerun. Its original 5/6 run found accessibility enabled but marked crashed
+after instrumentation; clearing only that disposable test state allowed the
+service to reconnect. The original backend setup failure had correction off.
+Keep both original failures beside their reruns outside Git.
+ADB permission setup also passed 6/6. A final-frame run lost its observer
+after a long rejected write dismissed and reopened the panel; real diagnostics
+already showed the correct unconfirmed readback. Observing every attachment
+in the development fixture fixed the recording and passed 13/13.
+Final emulator layout/screen-off/ordinary suites passed 56/56, 16/16 and
+17/17 on the same application APK.
+Final first-launch guidance and the missing-server helper chooser passed
+19/19. Temporary emulator Shizuku was stopped and its starter removed.
+
+Server UID acceptance and raw-reader readiness do not prove built-in physical
+key delivery, audible Bluetooth behavior or phone reboot survival. Those
+physical-device matrix cases remain outstanding.

@@ -27,7 +27,7 @@ For mode selection, optional Root or bundled installation, read
 3. The helper's **关联启动** permission permits its process to start. The main
    application's foreground keeper holds a provider connection and reconnects.
    This process-start condition is separate from accepting an audio write.
-4. Screen-off processing can use explicitly enabled ADB Shizuku to read dedicated
+4. Screen-off processing can use explicitly enabled Shizuku to read dedicated
    volume/power devices. A fresh matched raw release authorizes a media write
    even when firmware made no native change. Accessibility-only recovery still
    requires a key-up and recent matching native change. A partial CPU wake lock

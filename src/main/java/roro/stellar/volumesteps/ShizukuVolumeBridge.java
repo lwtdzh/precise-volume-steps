@@ -74,7 +74,8 @@ final class ShizukuVolumeBridge {
             return;
         }
         try {
-            if (!Shizuku.pingBinder() || Shizuku.isPreV11() || Shizuku.getUid() != 2000
+            if (!Shizuku.pingBinder() || Shizuku.isPreV11()
+                    || !ShizukuServerIdentity.supported(Shizuku.getUid())
                     || Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
                 return;
             }
@@ -141,11 +142,22 @@ final class ShizukuVolumeBridge {
         if (!VolumeStepSettings.isShizukuEnabled(context)) {
             return R.string.shizuku_off;
         }
+        int authorization = authorizationStatus();
+        if (authorization != R.string.shizuku_authorized) {
+            return authorization;
+        }
+        return ready() ? R.string.shizuku_ready : error == null
+                ? R.string.shizuku_connecting : R.string.shizuku_failed;
+    }
+
+    /** Authorization belongs to the app, even while volume correction is off. */
+    static int authorizationStatus() {
         try {
             if (!Shizuku.pingBinder()) {
                 return R.string.shizuku_not_running;
             }
-            if (Shizuku.isPreV11() || Shizuku.getUid() != 2000) {
+            if (Shizuku.isPreV11()
+                    || !ShizukuServerIdentity.supported(Shizuku.getUid())) {
                 return R.string.shizuku_unsupported;
             }
             if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
@@ -154,8 +166,7 @@ final class ShizukuVolumeBridge {
         } catch (RuntimeException exception) {
             return R.string.shizuku_not_running;
         }
-        return ready() ? R.string.shizuku_ready : error == null
-                ? R.string.shizuku_connecting : R.string.shizuku_failed;
+        return R.string.shizuku_authorized;
     }
 
     private void disconnect() {

@@ -89,7 +89,8 @@ final class ShizukuKeyBridge {
         if (closed) return;
         if (!VolumeStepSettings.isShizukuEnabled(context)) { disconnect(); return; }
         try {
-            if (!Shizuku.pingBinder() || Shizuku.isPreV11() || Shizuku.getUid() != 2000
+            if (!Shizuku.pingBinder() || Shizuku.isPreV11()
+                    || !ShizukuServerIdentity.supported(Shizuku.getUid())
                     || Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) return;
             if (!binding) {
                 binding = true;

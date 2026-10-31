@@ -5,14 +5,14 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.concurrent.TimeUnit;
 
-/** Ephemeral ADB-Shizuku service for the helper's one fixed permission grant. */
+/** Ephemeral Shizuku service for the helper's one fixed permission grant. */
 public final class CompatibilityGrantShellService extends ICompatibilityGrantShell.Stub {
     static final int GRANTED = 0;
     static final int FAILED = -1;
 
     public CompatibilityGrantShellService() {
-        if (Process.myUid() != 2000) {
-            throw new SecurityException("ADB-started Shizuku required");
+        if (!ShizukuServerIdentity.supported(Process.myUid())) {
+            throw new SecurityException("Root or shell Shizuku required");
         }
     }
 

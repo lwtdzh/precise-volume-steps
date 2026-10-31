@@ -40,7 +40,7 @@ an upgrade of the existing phone needs its original certificate.
 |---|---|
 | Direct AudioManager | Main only, accessibility and background permissions |
 | Vivo helper | Main + helper 1.2, main self-start/background, helper 关联启动; one-time `adb shell pm grant com.vivo.finevolumesteps.helper android.permission.DUMP` for verified screen-off input |
-| Shizuku | Main + external Shizuku, ADB-started shell UID 2000, explicit grant |
+| Shizuku | Main + external Shizuku v11+, root UID 0 or ADB-started shell UID 2000, explicit grant |
 
 Helper label: `精准音量兼容助手（独立应用）`. It has no launcher activity.
 Main entry **设置独立兼容助手 → 打开助手权限设置** opens its system settings.

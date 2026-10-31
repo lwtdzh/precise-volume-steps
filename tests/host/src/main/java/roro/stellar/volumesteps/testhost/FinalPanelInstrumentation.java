@@ -92,7 +92,7 @@ public final class FinalPanelInstrumentation extends Instrumentation {
             systemReadback = field(overlay, "systemVolume");
             View systemView = (View) field(overlay, "systemView").get(overlay);
             state = field(overlay, "correctionState");
-            runOnMainSync(() -> panel.getViewTreeObserver().addOnPreDrawListener(() -> {
+            android.view.ViewTreeObserver.OnPreDrawListener observeFrame = () -> {
                 if (panel.isAttachedToWindow()) {
                     try {
                         frames.add(displayed.getInt(overlay));
@@ -105,7 +105,22 @@ public final class FinalPanelInstrumentation extends Instrumentation {
                     } catch (Exception exception) { throw new RuntimeException(exception); }
                 }
                 return true;
-            }));
+            };
+            runOnMainSync(() -> {
+                if (panel.isAttachedToWindow())
+                    panel.getViewTreeObserver().addOnPreDrawListener(observeFrame);
+                // A long rejected write can outlast the previous panel's
+                // dismissal timer. Its new ViewTreeObserver needs a listener.
+                panel.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+                    @Override public void onViewAttachedToWindow(View view) {
+                        view.getViewTreeObserver().addOnPreDrawListener(observeFrame);
+                    }
+                    @Override public void onViewDetachedFromWindow(View view) {
+                        if (view.getViewTreeObserver().isAlive())
+                            view.getViewTreeObserver().removeOnPreDrawListener(observeFrame);
+                    }
+                });
+            });
             invoke(cancel);
             Matcher mode = Pattern.compile("AUDIO_MEDIA_VOLUME: (\\w+)").matcher(
                     shell("appops get " + packageName + " AUDIO_MEDIA_VOLUME"));
@@ -213,8 +228,14 @@ public final class FinalPanelInstrumentation extends Instrumentation {
             if (data.contains("displayed volume=" + value)
                     && data.contains("correction state=" + correction)
                     && data.contains("overlay=attached=true")) {
-                Thread.sleep(60);
-                return;
+                AtomicReference<Boolean> rendered = new AtomicReference<>(false);
+                runOnMainSync(() -> {
+                    int last = frames.size() - 1;
+                    rendered.set(last >= 0 && frames.get(last) == value
+                            && systemFrames.get(last) == value
+                            && correction.equals(states.get(last)));
+                });
+                if (rendered.get()) return;
             }
             if (SystemClock.uptimeMillis() >= end) throw new IllegalStateException(
                     "Final display not observed: " + value + "\n" + data);

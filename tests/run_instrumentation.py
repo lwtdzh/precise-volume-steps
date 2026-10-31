@@ -19,6 +19,7 @@ SUITES = {
     "screen-off": "ScreenOffInstrumentation",
     "modes": "OperatingModesInstrumentation",
     "locked-raw-timing": "LockedRawTimingInstrumentation",
+    "shizuku-status": "ShizukuStatusInstrumentation",
 }
 
 
@@ -40,9 +41,13 @@ def main():
     parser.add_argument("--apk", type=Path, help="Require installed main to match this APK")
     parser.add_argument("--host-apk", type=Path, help="Require installed host to match this APK")
     parser.add_argument("--steps", type=int)
+    parser.add_argument("--expected-status", choices=["authorized", "denied", "stopped"],
+                        default="authorized")
+    parser.add_argument("--expected-uid", type=int, choices=[0, 2000], default=2000,
+                        help="Expected root or ADB Shizuku server UID")
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
-    if args.suite in ("frames", "screen-off", "modes") and not args.serial.startswith("emulator-"):
+    if args.suite in ("frames", "screen-off", "modes", "shizuku-status") and not args.serial.startswith("emulator-"):
         parser.error("Rejection/frame and screen-off fixtures are disposable-emulator only")
     if args.steps is not None and not 5 <= args.steps <= 150:
         parser.error("steps must be between 5 and 150")
@@ -109,6 +114,9 @@ def main():
         command += ["-e", "backend", args.backend]
         if args.steps is not None:
             command += ["-e", "steps", str(args.steps)]
+    if args.suite == "shizuku-status":
+        command += ["-e", "expected", args.expected_status,
+                    "-e", "expected_uid", str(args.expected_uid)]
     command += [HOST + "/." + SUITES[args.suite]]
     text = ""
     tests, success, errors = [], False, []
@@ -130,7 +138,12 @@ def main():
             "host_apk_sha256": host_digest, "helper_apk_sha256": helper_digest,
             "fixture_sha256": fixture_digest,
             "backend": args.backend if args.suite == "backend" else None,
-            "steps": args.steps, "input": "synthetic controller callbacks; actual Android audio/IPC",
+            "steps": args.steps,
+            "expected_status": args.expected_status if args.suite == "shizuku-status" else None,
+            "expected_uid": args.expected_uid if args.suite == "shizuku-status" else None,
+            "input": "real Shizuku permission and Activity UI readback; no key input"
+                    if args.suite == "shizuku-status"
+                    else "synthetic controller callbacks; actual Android audio/IPC",
             "results": tests, "success": success, "errors": errors,
             "before": before, "after": snapshot(),
         }

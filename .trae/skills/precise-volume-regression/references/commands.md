@@ -75,7 +75,7 @@ Install a main APK and same-signed test-host on the chosen device. For a real
 Vivo/helper run install the same-signed helper and allow 关联启动. Main correction
 must be enabled. Overlay tests need either connected accessibility or overlay
 permission. Inspect both `enabled=true` and actual service connection.
-Shizuku backend requires its running ADB user service and prior grant.
+Shizuku backend requires a running root or ADB server and prior app grant.
 
 Fixtures mutate native volume and can interrupt the main process/accessibility.
 They restore volume and selected test settings in `finally`, but still compare
@@ -197,6 +197,33 @@ python3 tests/permission_guidance.py --serial EMULATOR_SERIAL \
   --output /tmp/pvs-permission-guide
 ```
 
+For Shizuku authorization display, use the disposable-emulator-only
+`shizuku-status` suite with `--expected-status authorized`, `denied` or
+`stopped`. Prepare each actual server/grant state beforehand; the fixture
+checks real Binder/permission readback, leaves correction off while reading
+the page, and restores its preferences. Authorize through the actual Shizuku
+dialog; a legacy Android permission grant alone is insufficient.
+Repeat with `--expected-uid 0` for an actual root-started server; the default
+`--expected-uid 2000` checks the ADB identity.
+The fixture disables correction in `Instrumentation.onCreate`, before
+`Application.onCreate` can enqueue the keeper. Disabling and stopping it only
+in `onStart` raced startup and caused a foreground-service timeout in the
+original fixture run; preserve that failure as test lifecycle evidence.
+
+The frame fixture waits for actual pre-draw readback and correction state.
+Register its observer on every panel attachment and remove it on detach:
+a rejected write can outlast the prior dismissal timer and reopen the panel
+with a new `ViewTreeObserver`. Observing only the first attachment loses the
+failure-result frame even when diagnostics correctly show the actual volume.
+
+```sh
+python3 tests/run_instrumentation.py --serial EMULATOR_SERIAL \
+  --suite shizuku-status --expected-status authorized \
+  --apk build/outputs/apk/release/precise-volume-steps-release.apk \
+  --host-apk tests/host/build/outputs/apk/debug/precise-volume-steps-test-host-debug.apk \
+  --output /tmp/pvs-shizuku-status
+```
+
 | Fixture | Purpose and historical 1.4.11 count |
 |---|---|
 | `ShizukuRegressionInstrumentation` | Companion selector or Shizuku, stale/expiry/stream validation, background writes, pending bursts, reversal/revisiting; 87 Vivo / 85 emulator |
@@ -209,6 +236,12 @@ The screen-off fixture wakes the emulator at cleanup and assumes a native
 range containing its baseline 4/5. It is not a general real-phone screen-off
 tool. The backend fixture can accept `screen_off=true` directly, but that is
 still synthetic input and not physical routing certification.
+
+The final-frame fixture waits for an actual pre-draw sample containing the
+expected displayed value, native readback and correction state. A fixed 60 ms
+delay after window attachment was insufficient on a busy emulator; keep the
+original missing-first-frame and missing-failed-frame runs. This wait retains
+the first-frame/intermediate-value assertions and fails if no frame arrives.
 
 For a controlled Bluetooth output-gain comparison, the development test host's
 `HostActivity` accepts `tone=true` with `play=true`. It starts a low-level 440 Hz
@@ -286,7 +319,7 @@ python3 tests/screen_off_hid.py --serial SERIAL \
 ```
 
 Install the same-signed development host and UI observer; start and authorize
-ADB Shizuku first.
+Root or ADB Shizuku first.
 The harness temporarily enables the raw backend, disables conflicting Vivo
 volume-key shortcuts and restores settings, volume, accessibility and shortcuts
 in cleanup. On the tested Vivo, shell `settings put` silently leaves these

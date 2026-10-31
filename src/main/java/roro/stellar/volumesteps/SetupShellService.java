@@ -4,7 +4,8 @@ import android.os.Process;
 
 public final class SetupShellService extends ISetupShell.Stub {
     public SetupShellService() {
-        if (Process.myUid() != 2000) throw new SecurityException("Shell UID required");
+        if (!ShizukuServerIdentity.supported(Process.myUid()))
+            throw new SecurityException("Root or shell UID required");
     }
     @Override public String setup(int user) { return PrivilegedSetup.run(user); }
     @Override public void destroy() { System.exit(0); }

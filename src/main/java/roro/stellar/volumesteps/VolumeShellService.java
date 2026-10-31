@@ -5,7 +5,7 @@ import android.os.Process;
 import android.os.SystemClock;
 import java.lang.reflect.Method;
 
-/** Shizuku user service. Uses the shell UID and its own package identity. */
+/** Shizuku user service. Uses the server UID and its matching package identity. */
 public final class VolumeShellService extends IVolumeShell.Stub {
     static final int STALE = -1;
     static final int FAILED = -2;
@@ -19,7 +19,7 @@ public final class VolumeShellService extends IVolumeShell.Stub {
     private final int[] maximum = new int[6];
 
     public VolumeShellService() throws ReflectiveOperationException {
-        this(false);
+        this(Process.myUid() == 0);
     }
 
     VolumeShellService(boolean root) throws ReflectiveOperationException {
