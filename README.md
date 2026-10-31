@@ -37,6 +37,8 @@ adb shell pm grant com.vivo.finevolumesteps.helper android.permission.DUMP
 
 **Root 模式：** 本应用直接通过 `su` 启动 Root 服务，音量读写和息屏按键监听均不依赖 Shizuku。授权由手机的 Root 管理器控制，无需安装助手或授予助手 DUMP 权限。已在模拟器和一台已授权的 Vivo 手机上检查 Root 连接；内置实体键与重启行为仍需单独实测。
 
+在 SukiSU / KernelSU 中，请给主应用 **精准音量**（`roro.stellar.volumesteps`）开启“超级用户”。“精准音量兼容助手（独立应用）”是另一个应用，给助手授权不会让主应用获得 Root。授权后返回主应用，点击 **授权 Root 并完成设置**；以主页的实际连接状态为准。
+
 **息屏调节：** 检查主页是否显示按键监听已就绪。系统的音量键快捷功能可能同时响应，建议关闭长按音量减快启和息屏双击音量减拍照。息屏长按在松开后按次数或时长调节，通话期间由系统处理。
 
 ## 音量面板

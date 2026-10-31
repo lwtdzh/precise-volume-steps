@@ -308,3 +308,35 @@ Final first-launch guidance and the missing-server helper chooser passed
 Server UID acceptance and raw-reader readiness do not prove built-in physical
 key delivery, audible Bluetooth behavior or phone reboot survival. Those
 physical-device matrix cases remain outstanding.
+
+## SukiSU main/helper grant mismatch, 2026-10-31
+
+V2419A/API 36, SukiSU v4.3.0 (41100-6), main 1.5.1/code 29:
+the main app reported no Root despite the user's manager authorization.
+The read-only diagnostic executed under the main UID 10343, not ADB shell.
+Its `command -v su` returned no path; `/system/bin/su` was absent from that
+app process, explicit execution failed with ENOENT, and libsu fell back to a
+non-root shell. ADB shell separately saw the SukiSU su binary and reached
+UID 0. Those observations did not establish the main application's grant.
+
+SukiSU's superuser list showed three grants: the compatibility helper, shell
+and Shizuku. The main `roro.stellar.volumesteps` entry showed UMOUNT and its
+superuser switch was off. Enabling that exact main-app switch, then returning
+and tapping “授权 Root 并完成设置”, connected the unchanged production libsu
+RootService as UID 0 and found two input devices. The fixed setup commands
+completed. No su binary replacement, alternate privileged backend or Root
+manager policy bypass was needed.
+
+Main UID/package and helper UID/package are separate authorization subjects.
+Inspect the exact main profile before interpreting a helper grant as a libsu
+failure. An app-visible missing su may be caused by the manager's per-app
+visibility policy; do not infer a broken system installation from ADB's path.
+
+Instrumentation interrupted the previously connected accessibility service.
+Restore only its native system switch off/on and confirm connected=true;
+the full enabled-service list remained identical. Final state retained
+selected Root mode, correction enabled, 50 steps, volume 0/150 and playback
+inactive. The introduced host/observer APKs were removed. Production APK
+remained `97f6335af826e64a01e1840d66b536829e210ec74340e330b3e3e792afe7c482`.
+This checks grant and connection only; built-in physical buttons, screen-off
+delivery and phone reboot survival were not rerun.
