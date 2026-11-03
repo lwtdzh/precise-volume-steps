@@ -340,7 +340,7 @@ public final class MainActivity extends Activity {
             Intent intent = new Intent(Intent.ACTION_VIEW).setDataAndType(
                     HelperApkProvider.URI, "application/vnd.android.package-archive")
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            intent.setClipData(ClipData.newRawUri("内置助手", HelperApkProvider.URI));
+            intent.setClipData(ClipData.newRawUri(getString(R.string.helper_clip_label), HelperApkProvider.URI));
             startActivity(intent);
         } catch (Exception exception) { showSetupReport(getString(R.string.helper_installer_failed, exception.getMessage())); }
     }

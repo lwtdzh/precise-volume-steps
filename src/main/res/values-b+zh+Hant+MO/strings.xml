@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Macau terminology; all other strings inherit from zh-Hant. -->
+    <string name="app_name">精準音量</string>
+    <string name="setup_background_run">背景運行</string>
+    <string name="setup_battery">電池優化</string>
+    <string name="home_intro">選好運行模式，每次按鍵按你的檔數調節。</string>
+    <string name="home_steps">音量檔數</string>
+    <string name="home_step_value">%1$d 檔</string>
+    <string name="home_step_hint">每次約 %1$.2f%% · 檔數越多，調節越細</string>
+    <string name="home_mode">運行模式</string>
+    <string name="home_permissions">權限與背景運行</string>
+    <string name="permission_battery_title">電池優化豁免</string>
+    <string name="permission_notification_title">背景運行通知</string>
+    <string name="permission_background_title">系統背景運行限制</string>
+    <string name="open_battery_settings">設定電池優化</string>
+    <string name="background_section">背景運行</string>
+    <string name="correction_starting">正在啟動背景服務</string>
+    <string name="correction_running">背景音量修正運行中</string>
+    <string name="correction_waiting_accessibility">背景服務運行中，等待音量按鍵服務</string>
+    <string name="auto_start_setup_title">開機與背景運行</string>
+    <string name="battery_unrestricted">電池優化已豁免</string>
+    <string name="battery_restricted">電池優化未豁免</string>
+    <string name="disable_battery_optimization">關閉電池優化</string>
+    <string name="open_vendor_background_settings">查看系統背景運行設定</string>
+    <string name="vendor_background_title">背景運行設定</string>
+    <string name="scope_all">所有可識別音訊串流</string>
+    <string name="export_diagnostics">匯出運行診斷</string>
+    <string name="background_channel_description">保持音量按鍵修正服務在背景運行</string>
+    <string name="background_notification_title">精準音量正在運行</string>
+    <string name="background_notification_text">媒體音量：%1$d / 100%% · 檔位：%3$d / %2$d 階</string>
+    <string name="overlay_accessibility_description">%1$s %2$d / 100%%，調節檔位 %3$d / %4$d 階</string>
+    <string name="shizuku_section">背景音量兼容模式</string>
+    <string name="compatibility_grant_usb_help">用 USB 數據線連接電腦並開啟 USB 偵錯，然後執行：</string>
+</resources>

@@ -1,5 +1,46 @@
 # Implementation and historical findings
 
+## Released key lost when waking, 2026-11-01
+
+User feedback: in assistant mode, three presses while asleep appeared to count
+as two after waking. The user checked by pressing down once awake and subtracting
+that press from the settled result. No new physical-phone capture was available.
+
+A synthetic helper-input fixture on API 33 AOSP reproduced one cause with real
+helper Binder writes and AudioManager readback: native 14, configured 5 steps,
+first two released downs confirmed 11 and 8. The third matched release was
+received, but a subsequent power down canceled the released gesture during its
+300 ms wait. Waking left volume at 8 instead of 5. Independently, the old detector
+also discarded a released raw gesture once the screen became unlocked.
+
+`VolumeAdjustmentController` now preserves an accepted, complete release across
+wake/unlock. Screen state still gates accepting new raw presses and releases.
+Power while volume remains held still cancels the chord; mode/readiness, stale
+event rejection, external-change checks and the existing settling wait remain.
+A duplicate up or rejected later down cannot cancel an already accepted release.
+The companion's input readiness is checked separately from which input path owns
+new keys on the current screen. An awake accessibility key can join the pending
+released gesture without dropping its earlier directions.
+
+The extended emulator fixture passed 24/24 at both 5 and 10 steps, including
+immediate awake verification, rapid bursts, native transitions and negative
+chord/held-unlock/passive cases. Input readiness and key callbacks are synthetic;
+helper IPC, audio and power state are real. This proves the controller ordering,
+not built-in physical delivery, and does not identify which press was lost in
+the user's original sequence. Repeat the physical matrix before claiming a
+phone fix. The case and executable procedure are in the regression references.
+
+The tested main APK SHA-256 is
+`f9a979811a3ba4bf675c5ca99653e086362f82a31a9501a50199b42bc664581b`.
+Main/helper unit suites passed 56/56 and 3/3; release lint had no errors.
+Final API 33 emulator ordinary/frame/layout/screen-off suites passed
+17/17, 13/13, 56/56 and 16/16. First-launch guidance passed 24/24 after updating
+an old assertion to the actual unlocked-screen wording. The original APK failed
+4/5 using the same final wake fixture; retain that run and all intermediate
+fixture runs separately. Final restoration passed 21/21 after correcting empty
+log-property quoting in the temporary restoration script. No physical phone
+was connected during this work.
+
 ## Scope and current identity
 
 The project began as the independent `volume-steps` module inside

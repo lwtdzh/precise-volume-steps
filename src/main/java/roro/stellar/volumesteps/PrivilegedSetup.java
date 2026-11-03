@@ -15,17 +15,17 @@ final class PrivilegedSetup {
     static String run(int user) {
         if (user < 0 || user > 21474) throw new IllegalArgumentException("Invalid Android user");
         String u = Integer.toString(user);
-        StringBuilder report = new StringBuilder();
+        SetupReport report = new SetupReport();
         if (Build.VERSION.SDK_INT >= 33)
-            grant(report, "通知", "pm", "grant", "--user", u, PACKAGE,
+            grant(report, R.string.setup_notification, "pm", "grant", "--user", u, PACKAGE,
                     "android.permission.POST_NOTIFICATIONS");
-        grant(report, "音量面板", "cmd", "appops", "set", "--user", u, PACKAGE,
+        grant(report, R.string.setup_overlay, "cmd", "appops", "set", "--user", u, PACKAGE,
                 "SYSTEM_ALERT_WINDOW", "allow");
-        grant(report, "后台运行", "cmd", "appops", "set", "--user", u, PACKAGE,
+        grant(report, R.string.setup_background_run, "cmd", "appops", "set", "--user", u, PACKAGE,
                 "RUN_IN_BACKGROUND", "allow");
-        grant(report, "后台启动", "cmd", "appops", "set", "--user", u, PACKAGE,
+        grant(report, R.string.setup_background_start, "cmd", "appops", "set", "--user", u, PACKAGE,
                 "RUN_ANY_IN_BACKGROUND", "allow");
-        grant(report, "电池优化", "cmd", "deviceidle", "whitelist", "+" + PACKAGE);
+        grant(report, R.string.setup_battery, "cmd", "deviceidle", "whitelist", "+" + PACKAGE);
         Result existing = command("settings", "--user", u, "get", "secure",
                 "enabled_accessibility_services");
         if (existing.ok) {
@@ -37,13 +37,13 @@ final class PrivilegedSetup {
             Result read = command("settings", "--user", u, "get", "secure",
                     "enabled_accessibility_services");
             boolean confirmed = read.ok && containsOwnService(read.text);
-            report.append("无障碍：").append(write.ok && enable.ok && confirmed
-                    ? "已写入系统设置，请等待服务连接" : "请到系统设置手动开启").append('\n');
+            report.add(R.string.setup_accessibility, write.ok && enable.ok && confirmed
+                    ? R.string.setup_accessibility_written : R.string.setup_accessibility_manual);
         } else {
-            report.append("无障碍：请到系统设置手动开启\n");
+            report.add(R.string.setup_accessibility, R.string.setup_accessibility_manual);
         }
-        report.append("厂商自启动、后台高耗电限制：请按权限指南检查。\n");
-        return report.toString();
+        report.add(R.string.setup_vendor, R.string.setup_vendor_manual);
+        return report.encode();
     }
 
     static String mergeAccessibility(String existing) {
@@ -65,9 +65,9 @@ final class PrivilegedSetup {
         return false;
     }
 
-    private static void grant(StringBuilder report, String label, String... args) {
+    private static void grant(SetupReport report, int label, String... args) {
         Result result = command(args);
-        report.append(label).append(result.ok ? "：已执行\n" : "：需手动授权\n");
+        report.add(label, result.ok ? R.string.setup_applied : R.string.setup_manual);
     }
 
     private static Result command(String... args) {

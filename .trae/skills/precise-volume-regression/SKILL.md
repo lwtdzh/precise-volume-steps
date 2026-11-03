@@ -7,6 +7,8 @@ description: Verify volume behavior and releases against past user feedback. Use
 
 Read [build and automated suites](references/commands.md) and
 [the physical-phone feedback matrix](references/phone-matrix.md).
+For translations or locale changes, also read
+[Android language resources](references/localization.md).
 For raw input, playback fixtures or interrupted phone tests, also read
 [screen-off regression cases and follow-ups](references/screen-off-cases.md).
 For reboot failures, preserve the untouched missing-server state before

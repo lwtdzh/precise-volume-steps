@@ -35,6 +35,23 @@ different purposes. A callback received in 1–4 ms was still followed by a late
 firmware write. Inspect raw receipt, native write and app correction timestamps
 separately before choosing a fix.
 
+## Released key followed by wake, 2026-11-01
+
+| ID | Reproduce and expected result | Existing evidence |
+|---|---|---|
+| R31 | Assistant mode: settle two asleep downs, release a third, then press power and unlock during the 300 ms wait. Awake down once must continue from all three asleep presses. Repeat with an immediate awake down, three rapid releases, and a native transition before release. | API 33 emulator, synthetic helper readiness/callbacks with actual same-signed helper IPC, power state and AudioManager readback: 24/24 at 5 and 10 steps. Original version at 5 steps stayed at 8 instead of 5 from origin 14; original failure retained separately. Built-in phone delivery remains unverified. |
+| R32 | Power while volume is held; unlock before a consumed key's release; unmatched/duplicate up; stale down; passive off-screen preset. Keep chords and incomplete presses canceled, preserve an earlier accepted release without adding another step, and keep passive changes untouched. | Negative assertions in `ReleasedKeyWakeInstrumentation`; physical chord and cross-screen key delivery remain pending. |
+
+The user reported three asleep presses counting as two, checked by subtracting
+one awake down from the final corrected value. Capture the actual pre-wake
+readback as well as this inferred value. On uneven grids, retrace the planner's
+visited values instead of subtracting a fixed nominal interval.
+For the physical follow-up, compare waking immediately after the last release
+with waking after one second; include power wake and other wake methods, idle
+and actual-player playback, and the originally configured steps/route. Capture
+every built-in down/up, controller receipt and immediate/settled readback.
+The discovered cancellation explains one ordering, not every missing-key report.
+
 Use the installed test host and observer hashes when judging fixture identity.
 The final two HID runs each have 83 assertions, including playback continuity.
 Earlier passing counts with fewer assertions are separate historical evidence.

@@ -29,7 +29,8 @@ final class RootVolumeBridge {
     private boolean binding, closed;
     private long generation;
     private int devices;
-    private String error = "点击「授权 Root 并完成设置」";
+    private int status = R.string.root_setup_prompt;
+    private String inputError;
     private Consumer<String> setupResult;
     private final InputManager input;
     private final InputManager.InputDeviceListener inputs = new InputManager.InputDeviceListener() {
@@ -41,7 +42,8 @@ final class RootVolumeBridge {
         @Override public void onServiceConnected(ComponentName name, IBinder binder) {
             if (closed || !selected()) { disconnect(); return; }
             remote = IPrivilegedVolume.Stub.asInterface(binder);
-            error = null;
+            status = 0;
+            inputError = null;
             long token = ++generation;
             try {
                 remote.listen(new IVolumeKeyListener.Stub() {
@@ -56,17 +58,17 @@ final class RootVolumeBridge {
                         handler.post(() -> {
                             if (closed || generation != token) return;
                             devices = count;
-                            error = failure;
+                            inputError = failure;
                             changed.run();
                         });
                     }
                 });
-            } catch (RemoteException exception) { failed("Root 服务连接中断"); return; }
+            } catch (RemoteException exception) { failed(R.string.root_connection_interrupted); return; }
             if (setupResult != null) setup(setupResult);
             changed.run();
         }
         @Override public void onServiceDisconnected(ComponentName name) {
-            failed("Root 服务已断开，点击重新连接");
+            failed(R.string.root_disconnected);
         }
     };
 
@@ -90,7 +92,7 @@ final class RootVolumeBridge {
             Shell.getShell(value -> handler.post(() -> {
                 if (closed || !selected() || generation != token) return;
                 if (value.isRoot()) bind();
-                else failed("Root 权限不可用，请在 Root 管理器中重新授权");
+                else failed(R.string.root_permission_unavailable);
             }));
         }
     }
@@ -99,7 +101,7 @@ final class RootVolumeBridge {
         if (closed || !selected()) return;
         if (setupResult != null) return;
         setupResult = result;
-        error = "正在请求 Root 授权";
+        status = R.string.root_requesting_permission;
         changed.run();
         long token = generation;
         Shell cached = Shell.getCachedShell();
@@ -108,25 +110,25 @@ final class RootVolumeBridge {
         }
         Shell.getShell(shell -> handler.post(() -> {
             if (closed || !selected() || generation != token) return;
-            if (!shell.isRoot()) { failed("未取得 Root 权限，请在 Root 管理器中允许本应用"); return; }
+            if (!shell.isRoot()) { failed(R.string.root_permission_denied); return; }
             VolumeStepSettings.preferences(context).edit().putBoolean("root_authorized", true).apply();
             if (ready()) setup(result); else bind();
         }));
         handler.postDelayed(() -> {
             if (!closed && generation == token && setupResult != null && !binding && remote == null)
-                failed("Root 授权超时，请检查 Root 管理器后重试");
+                failed(R.string.root_permission_timeout);
         }, 30000);
     }
 
     private void bind() {
         if (closed || binding || !selected()) return;
         binding = true;
-        error = "正在连接 Root";
+        status = R.string.root_connecting;
         RootService.bind(new Intent(context, RootVolumeService.class), connection);
         long token = generation;
         handler.postDelayed(() -> {
             if (!closed && generation == token && binding && remote == null)
-                failed("Root 服务启动失败，请检查 Root 管理器");
+                failed(R.string.root_start_failed);
         }, 15000);
     }
 
@@ -135,8 +137,8 @@ final class RootVolumeBridge {
         long token = generation;
         worker.execute(() -> {
             String report;
-            try { report = service.setup(); }
-            catch (RemoteException | RuntimeException exception) { report = "自动授权失败，请使用权限指南"; }
+            try { report = SetupReport.format(context, service.setup()); }
+            catch (RemoteException | RuntimeException exception) { report = context.getString(R.string.setup_failed); }
             String message = report;
             handler.post(() -> {
                 if (!closed && generation == token && selected()) {
@@ -148,7 +150,7 @@ final class RootVolumeBridge {
         });
     }
     boolean ready() { return !closed && selected() && remote != null && remote.asBinder().isBinderAlive(); }
-    boolean inputReady() { return ready() && devices > 0 && error == null; }
+    boolean inputReady() { return ready() && devices > 0 && inputError == null; }
     void invalidate() { writes.incrementAndGet(); }
     void adjust(int stream, int target, int before, long expiry, IntConsumer result) {
         IPrivilegedVolume service = remote;
@@ -166,26 +168,26 @@ final class RootVolumeBridge {
     }
     private void rescan() {
         if (ready()) {
-            try { remote.rescan(); } catch (RemoteException exception) { failed("Root 输入已断开"); }
+            try { remote.rescan(); } catch (RemoteException exception) { failed(R.string.root_input_disconnected); }
         }
     }
     void armBluetoothMask(int origin, long expiresAt) {
         IPrivilegedVolume service = remote;
         if (service != null && !closed && selected()) {
             try { service.armBluetoothMask(origin, expiresAt); }
-            catch (RemoteException | RuntimeException exception) { failed("Root 输入已断开"); }
+            catch (RemoteException | RuntimeException exception) { failed(R.string.root_input_disconnected); }
         }
     }
     String status() {
-        return ready() ? inputReady() ? "Root 已连接 · 息屏按键监听可用"
-                : "Root 已连接 · 息屏按键监听尚未就绪" : error;
+        return context.getString(ready() ? inputReady() ? R.string.root_ready
+                : R.string.root_keys_unavailable : status == 0 ? R.string.root_not_connected : status);
     }
-    String diagnostics() { return status() + ", devices=" + devices; }
-    private void failed(String message) {
+    String diagnostics() { return status() + ", devices=" + devices + ", input error=" + inputError; }
+    private void failed(int message) {
         Consumer<String> result = setupResult;
         disconnect();
-        error = message;
-        if (result != null) result.accept(message);
+        status = message;
+        if (result != null) result.accept(context.getString(message));
         changed.run();
     }
     private void disconnect() {

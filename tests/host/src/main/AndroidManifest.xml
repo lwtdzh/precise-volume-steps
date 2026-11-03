@@ -10,6 +10,8 @@
         android:targetPackage="roro.stellar.volumesteps" />
     <instrumentation android:name=".VolumeRegressionInstrumentation"
         android:targetPackage="roro.stellar.volumesteps" />
+    <instrumentation android:name=".LocalizationInstrumentation"
+        android:targetPackage="roro.stellar.volumesteps" />
     <instrumentation android:name=".ShizukuRegressionInstrumentation"
         android:targetPackage="roro.stellar.volumesteps" />
     <instrumentation android:name=".OverlayStabilityInstrumentation"
@@ -18,6 +20,8 @@
         android:targetPackage="roro.stellar.volumesteps" />
     <instrumentation android:name=".ScreenOffInstrumentation"
         android:targetPackage="roro.stellar.volumesteps" />
+    <instrumentation android:name=".ReleasedKeyWakeInstrumentation"
+        android:targetPackage="roro.stellar.volumesteps" />
     <instrumentation android:name=".LockedRawTimingInstrumentation"
         android:targetPackage="roro.stellar.volumesteps" />
     <instrumentation android:name=".OrdinaryModeProbeInstrumentation"
@@ -25,6 +29,8 @@
     <instrumentation android:name=".CompatibilityGrantUiInstrumentation"
         android:targetPackage="roro.stellar.volumesteps" />
     <instrumentation android:name=".ShizukuStatusInstrumentation"
+        android:targetPackage="roro.stellar.volumesteps" />
+    <instrumentation android:name=".ShizukuReconnectInstrumentation"
         android:targetPackage="roro.stellar.volumesteps" />
     <instrumentation android:name=".MediaSessionInstrumentation"
         android:targetPackage="roro.stellar.volumesteps.testhost" />

@@ -71,6 +71,31 @@ Current count is 35 (may grow):
 
 ## Instrumentation
 
+### Completed release across screen wake
+
+`ReleasedKeyWakeInstrumentation` requires a disposable AOSP emulator and the
+same-signed main, helper and host APKs. It acquires the real helper volume Binder;
+because AOSP lacks Vivo's built-in EventHub nodes, it supplies input readiness
+and callbacks through reflection. Do not use its results as physical key or
+vendor input-registration evidence. It restores changed preferences, volume
+and screen state; the runner retains both failure and success captures outside Git.
+
+```sh
+adb -s EMULATOR_SERIAL install -r compatibility-helper/build/outputs/apk/release/compatibility-helper-release.apk
+python3 tests/run_instrumentation.py --serial EMULATOR_SERIAL \
+  --suite released-key-wake --steps 5 \
+  --apk build/outputs/apk/release/precise-volume-steps-release.apk \
+  --host-apk tests/host/build/outputs/apk/debug/precise-volume-steps-test-host-debug.apk \
+  --output /tmp/pvs-released-wake
+# Repeat with --steps 10 for uneven rounding on AOSP's 0–15 range.
+```
+
+Retain a run of the original APK using the same extended host fixture. Check
+R31/R32 in `screen-off-cases.md` and separately collect the user's physical
+assistant-mode sequence before reporting that their device issue is resolved.
+
+### Existing volume fixtures
+
 Install a main APK and same-signed test-host on the chosen device. For a real
 Vivo/helper run install the same-signed helper and allow 关联启动. Main correction
 must be enabled. Overlay tests need either connected accessibility or overlay
@@ -278,6 +303,19 @@ It cannot certify Bilibili or an OEM by itself.
 Historical assertions may expose current platform timing differences; investigate
 and fix tests/code from evidence, never weaken them just to get a passing count.
 
+After `adb root`, wait for an announced adbd restart to disconnect before
+waiting for the device again; an immediate `wait-for-device` can still observe
+the old transport and let the following push fail offline. The audio fixture
+waits up to five seconds for its own UID's live `AudioPlaybackConfiguration`
+to become started; a historical player-event log is not playback evidence.
+Rapid-key final-volume checks allow the existing bounded correction to finish
+within 1.2 seconds and require the expected readback to persist another 250 ms.
+Keep immediate samples in the result details; panel-frame tests separately
+verify that pending native values are not rendered as intermediate frames.
+The phone accessibility restoration helper accepts both simplified and
+traditional Chinese confirmation labels, preserving the complete normalized
+service list.
+
 ## Installed-phone screen-off raw input (P15)
 
 The 1.4.13 helper-UID routed-jump test is historical. Its native-jump inference
@@ -462,6 +500,48 @@ It compares main/Bilibili permissions, AppOps and boot records; do not assume
 Bilibili's proprietary startup permissions are transferable.
 
 ## Evidence report
+
+For delayed Shizuku startup and authorization granted silently by the manager,
+compile `tests/ShizukuFlags.java` with the installed `android.jar`, then dex
+**all** generated class files with `d8` (including the anonymous Binder class).
+This test client runs as the manager UID through the disposable emulator's
+existing `su`; production Shizuku code does not use Root.
+Install the matching main/test-host APKs and start the official Shizuku server
+under the requested UID before running:
+
+```sh
+python3 tests/shizuku_reconnect.py --serial EMULATOR_SERIAL \
+  --scenario silent --server-uid 2000 \
+  --flags-dex /tmp/pvs-tests/flags-dex/classes.dex \
+  --apk build/outputs/apk/release/precise-volume-steps-release.apk \
+  --host-apk tests/host/build/outputs/apk/debug/precise-volume-steps-test-host-debug.apk \
+  --output /tmp/pvs-tests/reconnect
+```
+
+Run `silent`, `delayed`, `missed` and `stalled` separately under shell UID 2000
+and Root UID 0. The runner checks installed APK hashes and restores manager
+authorization; instrumentation restores the mode/enabled preferences.
+`stalled` injects unanswered bridge connections, waits through the real
+ten-second timeout and requires subsequent real user-service Binders. Keep this
+injected failure separate from a naturally delayed server.
+After recovering, each case observes both connected bridges for 4.3 seconds,
+spanning at least two former inspection intervals. It requires an unchanged
+inspection timestamp, unchanged connection objects and live Binders. This
+verifies periodic inspection stops after connection; it is not a battery
+measurement. A raw service connected without readable devices still stops
+inspection, because device availability is separate from a live connection.
+Record a real reboot with a changed kernel boot ID separately from a server
+restart. On a personal phone preserve the original missing-server state before
+recovery, and keep the built-in-button matrix separate.
+Before rebooting a fixture immediately after a new grant, verify the official
+manager's runtime permission and persisted authorization. The examined Shizuku
+server delays config writes by ten seconds; an in-memory `flags=2` readback is
+insufficient to establish a grant survives reboot. Do not grant the permission
+after reboot and call that pre-existing automatic authorization.
+An AOSP emulator with no persistent volume-key device can connect the raw
+user-service Binder and correctly report `no readable volume-key device`.
+Record that successful connection separately from input availability; a
+temporary uinput device from a prior boot does not survive reboot.
 
 Run build/unit/lint immediately before summarizing; include all original failures
 and repeats rather than replacing a failed run. Use new JSON files from the

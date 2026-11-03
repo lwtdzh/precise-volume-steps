@@ -25,7 +25,12 @@ android {
         aidl true
     }
 
+    androidResources {
+        generateLocaleConfig = true
+    }
+
     sourceSets.main.aidl.srcDir 'compatibility-aidl'
+    sourceSets.main.res.srcDir 'localization/res'
 
     buildTypes {
         release {

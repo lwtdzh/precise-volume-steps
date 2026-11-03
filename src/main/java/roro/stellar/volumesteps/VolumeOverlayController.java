@@ -197,8 +197,9 @@ final class VolumeOverlayController {
                 level,
                 steps
         );
-        volumeDescription = description + "，" + setting
-                + (status.isEmpty() ? "" : "，" + status);
+        String separator = service.getString(R.string.spoken_separator);
+        volumeDescription = description + separator + setting
+                + (status.isEmpty() ? "" : separator + status);
         if (!state.holdsReadback()) readSystemVolume();
     }
 
@@ -218,7 +219,7 @@ final class VolumeOverlayController {
             String text = service.getString(R.string.overlay_system_volume_unavailable);
             if (!TextUtils.equals(systemView.getText(), text)) systemView.setText(text);
         }
-        panel.setContentDescription(volumeDescription + "，" + systemView.getText());
+        panel.setContentDescription(volumeDescription + service.getString(R.string.spoken_separator) + systemView.getText());
     }
 
     /** Only a confirmed native button adjustment may attach or extend the panel. */
@@ -291,7 +292,7 @@ final class VolumeOverlayController {
             systemView.setText(service.getString(R.string.overlay_system_volume,
                     systemVolume, systemMaximum));
             systemView.setContentDescription(systemView.getText());
-            panel.setContentDescription(volumeDescription + "，" + systemView.getText());
+            panel.setContentDescription(volumeDescription + service.getString(R.string.spoken_separator) + systemView.getText());
             settlingReadback = -1;
         }
         attachRequested = false;

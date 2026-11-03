@@ -111,3 +111,55 @@ readback was checked again after one second, with continuous playback, hidden
 panel and unchanged player/main PIDs. Idle/controlled-playback HID runs passed
 135 checks at 50 steps and 127 at 64 steps. Built-in presses remain unverified.
 See [the verification record](../../../../dist/verification-1.4.15.md).
+
+## Delayed startup and silent authorization
+
+The 1.5.1 reconnect fix covers a running keeper whose selected mode is Shizuku,
+but whose server starts later or whose permission is granted silently by the
+manager. Permission-result listeners only cover requests made by this process;
+the manager can update its authorization without invoking those listeners.
+
+The existing controller poll checks authorization and missing user-service
+connections every two seconds while Shizuku mode is enabled. Once both Binders
+are connected, it skips inspection and relies on Binder death/disconnect
+callbacks plus local `isBinderAlive` checks. This also applies when the raw
+service reports no readable input device: input availability is separate from
+connection health. The two-second recovery check introduces no separate timer
+or wake lock. If the API has no
+live server Binder, `ShizukuBinderDiscovery` requests it through the official
+manager's explicit `REQUEST_BINDER` receiver protocol, also used by rish.
+It accepts only callbacks from the installed manager UID, waits for user unlock,
+and rejects deliveries after mode exit or controller shutdown. The manager's
+provider requires `INTERACT_ACROSS_USERS_FULL`; querying it from the ordinary
+application UID is not a usable discovery path. The main Shizuku provider is
+direct-boot aware so privileged server delivery can reach a running locked-boot
+process.
+
+Both volume and raw-input bridges abandon an unanswered bind after ten seconds,
+then retry on the next inspection. Every bind has its own connection object;
+late callbacks from an older attempt cannot replace the current connection.
+Discovery and reconnection do not request permission, open an Activity, start
+Shizuku, or use Root.
+
+`tests/shizuku_reconnect.py` uses the real official server and manager on a
+disposable emulator. Its silent-grant case changes real manager authorization
+five seconds after the keeper begins waiting and requires zero request-result
+callbacks. Delayed startup, missed Binder delivery and an injected unanswered
+bind are separate cases. All require live volume and input Binders, unchanged
+volume/mode, no main Activity and rejection of stale deliveries after mode exit.
+These cases establish automatic connection recovery; they do not establish
+built-in physical-button delivery or automatic startup of Shizuku itself.
+
+The recorded reconnect test APK was installed on Vivo V2419A / Android 16:
+the pre-update keeper remained unready with the real Root server already
+running and authorization granted. Updating the APK recovered both services
+without opening the main Activity or changing the selected mode. Stopping that
+real server, waiting five seconds and starting it again recovered in 998 ms
+with the same keeper PID, unchanged preferences/native volume and accessibility.
+On AOSP API 33, a changed-boot-ID reboot followed by delayed official Root
+startup passed 13 checks after verifying the pre-boot grant was persisted.
+Its raw service connected but reported no readable device, since the earlier
+temporary input node did not survive reboot. See
+[the reconnect test record](../../../../dist/precise-volume-steps-1.5.1-shizuku-reconnect-test-report.md)
+for the original failed setup runs and unresolved ordinary-mode stress results.
+Vivo actual reboot and built-in physical-button delivery remain unverified.

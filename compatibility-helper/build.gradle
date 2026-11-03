@@ -17,6 +17,8 @@ android {
         aidl true
     }
     sourceSets.main.aidl.srcDir '../compatibility-aidl'
+    // Share the app label translations; never change the helper's runtime identity.
+    sourceSets.main.res.srcDir '../localization/res'
     buildTypes {
         release {
             minifyEnabled false

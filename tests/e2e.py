@@ -149,7 +149,9 @@ class Suite:
         time.sleep(1)
 
     def prepare(self):
-        self.adb("root")
+        root_result = self.adb("root")
+        if "restarting adbd" in root_result:
+            self.adb("wait-for-disconnect")
         self.adb("wait-for-device")
         self.adb("push", self.args.keys, "/data/local/tmp/fvs-native-keys")
         self.shell("chmod", "755", "/data/local/tmp/fvs-native-keys")
@@ -180,7 +182,7 @@ class Suite:
         self.check("clean install opens permission guide before correction is enabled",
                    self.find(tree, rid="android:id/alertTitle").get("text") == "权限设置向导")
         self.check("guide explains optional screen-off helper grant",
-                   any("未授权不会影响亮屏调节" in n.get("text", "")
+                   any("未授权不会影响已解锁的亮屏调节" in n.get("text", "")
                        for n in tree.iter("node")))
         self.tap(self.find(tree, rid="android:id/button2"))
         tree = self.ui("clean-install-main")
@@ -472,9 +474,18 @@ class Suite:
     def audio_tests(self):
         self.configure_steps(5)
         self.launch(host=True)
-        self.check("real media playback is active",
-                   "state:started" in self.shell("dumpsys", "audio")
-                   or "state=started" in self.shell("dumpsys", "audio"))
+        host_uid = re.search(r"userId=(\d+)", self.shell("dumpsys", "package", HOST)).group(1)
+        deadline = time.monotonic() + 5
+        while True:
+            audio_state = self.shell("dumpsys", "audio")
+            started = any("AudioPlaybackConfiguration" in line
+                          and re.search(r"\b(?:uid|u)/pid:" + host_uid + r"/", line)
+                          and re.search(r"state[:=]\s*started\b", line)
+                          for line in audio_state.splitlines())
+            if started or time.monotonic() >= deadline:
+                break
+            time.sleep(.1)
+        self.check("real media playback is active", started, audio_state if not started else "")
         self.shell("input", "keyevent", "KEYCODE_HOME")
         for label, sequence, initial in [
             ("background single up", "+", 6), ("background single down", "-", 6),
@@ -566,8 +577,18 @@ class Suite:
                 self.baseline(6)
                 self.keys(sequence, hold=20, gap=20)
                 expected = self.expected(6, sequence)
-                self.check(f"fast sequence {sequence} run {run+1}", self.volume() == expected,
-                           f"{self.volume()}, expected {expected}")
+                deadline = time.monotonic() + 1.2
+                actual = self.volume()
+                first = actual
+                while (actual != expected or "pending correction=none" not in self.report()
+                       ) and time.monotonic() < deadline:
+                    time.sleep(.05)
+                    actual = self.volume()
+                time.sleep(.25)
+                settled = self.volume()
+                self.check(f"fast sequence {sequence} run {run+1}",
+                           actual == expected and settled == expected,
+                           f"first {first}, settled {settled}, expected {expected}")
         self.baseline(6)
         self.shell("input", "keyevent", "KEYCODE_SLEEP")
         self.keys("+")
@@ -638,9 +659,24 @@ class Suite:
         return False
 
     def correction(self, label):
+        deadline = time.monotonic() + 10
+        while "accessibility connected=true" not in self.report():
+            if time.monotonic() >= deadline:
+                self.check(label + ": accessibility reconnected", False, self.report())
+                return
+            time.sleep(.1)
         self.baseline(6)
         self.keys("+")
-        self.check(label, self.volume() == 9, self.volume())
+        deadline = time.monotonic() + 1.2
+        actual = self.volume()
+        first = actual
+        while actual != 9 and time.monotonic() < deadline:
+            time.sleep(.05)
+            actual = self.volume()
+        time.sleep(.25)
+        settled = self.volume()
+        self.check(label, actual == 9 and settled == 9,
+                   f"first {first}, settled {settled}, expected 9")
 
     def display_tests(self):
         self.configure_steps(30)

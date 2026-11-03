@@ -13,6 +13,7 @@ import rikka.shizuku.Shizuku;
 
 /** Optional read-only connection, selected by the existing Shizuku setup action. */
 final class ShizukuKeyBridge {
+    private static final long BIND_TIMEOUT_MS = 10000;
     interface Callback {
         void onKey(String node, int code, int value, long time, int maskedOrigin);
     }
@@ -28,6 +29,14 @@ final class ShizukuKeyBridge {
     private int devices;
     private String error;
     private long generation;
+    private ServiceConnection connection;
+    private final Runnable bindingTimeout = this::bindingTimedOut;
+
+    private void bindingTimedOut() {
+        disconnect();
+        error = "input connection timed out";
+        changed.run();
+    }
     private final Shizuku.OnBinderReceivedListener received = this::connect;
     private final Shizuku.OnBinderDeadListener dead = this::binderDied;
     private final Shizuku.OnRequestPermissionResultListener permission = (code, result) -> connect();
@@ -36,35 +45,46 @@ final class ShizukuKeyBridge {
         @Override public void onInputDeviceRemoved(int id) { rescan(); }
         @Override public void onInputDeviceChanged(int id) { rescan(); }
     };
-    private final ServiceConnection connection = new ServiceConnection() {
-        @Override public void onServiceConnected(ComponentName name, IBinder binder) {
-            if (closed || !VolumeStepSettings.isShizukuEnabled(context)) { disconnect(); return; }
-            remote = IVolumeKeyShell.Stub.asInterface(binder);
-            long token = ++generation;
-            try {
-                remote.listen(new IVolumeKeyListener.Stub() {
-                    @Override public void onKey(String node, int code, int value, long time,
-                                                int maskedOrigin) {
-                        handler.post(() -> {
-                            if (!closed && generation == token
-                                    && VolumeStepSettings.isShizukuEnabled(context)) {
-                                callback.onKey(node, code, value, time, maskedOrigin);
-                            }
-                        });
-                    }
-                    @Override public void onStatus(int count, String failure) {
-                        handler.post(() -> {
-                            if (closed || generation != token) return;
-                            devices = count;
-                            error = failure;
-                            changed.run();
-                        });
-                    }
-                });
-            } catch (RemoteException | RuntimeException exception) { binderDied(); }
-        }
-        @Override public void onServiceDisconnected(ComponentName name) { binderDied(); }
-    };
+
+    private ServiceConnection newConnection() {
+        return new ServiceConnection() {
+            @Override public void onServiceConnected(ComponentName name, IBinder binder) {
+                if (connection != this) return;
+                if (closed || !VolumeStepSettings.isShizukuEnabled(context)) {
+                    disconnect();
+                    return;
+                }
+                handler.removeCallbacks(bindingTimeout);
+                remote = IVolumeKeyShell.Stub.asInterface(binder);
+                long token = ++generation;
+                try {
+                    remote.listen(new IVolumeKeyListener.Stub() {
+                        @Override public void onKey(String node, int code, int value, long time,
+                                                    int maskedOrigin) {
+                            handler.post(() -> {
+                                if (!closed && generation == token
+                                        && VolumeStepSettings.isShizukuEnabled(context)) {
+                                    callback.onKey(node, code, value, time, maskedOrigin);
+                                }
+                            });
+                        }
+                        @Override public void onStatus(int count, String failure) {
+                            handler.post(() -> {
+                                if (closed || generation != token) return;
+                                devices = count;
+                                error = failure;
+                                changed.run();
+                            });
+                        }
+                    });
+                } catch (RemoteException | RuntimeException exception) { binderDied(); }
+            }
+
+            @Override public void onServiceDisconnected(ComponentName name) {
+                if (connection == this) binderDied();
+            }
+        };
+    }
 
     ShizukuKeyBridge(Context context, Callback callback, Runnable changed) {
         this.context = context;
@@ -89,16 +109,25 @@ final class ShizukuKeyBridge {
         if (closed) return;
         if (!VolumeStepSettings.isShizukuEnabled(context)) { disconnect(); return; }
         try {
-            if (!Shizuku.pingBinder() || Shizuku.isPreV11()
-                    || !ShizukuServerIdentity.supported(Shizuku.getUid())
-                    || Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) return;
+            if (ShizukuVolumeBridge.authorizationStatus() != R.string.shizuku_authorized) {
+                if (binding) {
+                    disconnect();
+                    changed.run();
+                }
+                return;
+            }
+            if (remote != null && !remote.asBinder().isBinderAlive()) disconnect();
             if (!binding) {
+                error = null;
                 binding = true;
+                connection = newConnection();
+                handler.postDelayed(bindingTimeout, BIND_TIMEOUT_MS);
                 Shizuku.bindUserService(args, connection);
             }
         } catch (RuntimeException exception) {
-            binding = false;
+            disconnect();
             error = exception.getClass().getSimpleName();
+            changed.run();
         }
     }
 
@@ -116,28 +145,31 @@ final class ShizukuKeyBridge {
         }
     }
 
+    boolean connected() {
+        return !closed && remote != null && remote.asBinder().isBinderAlive();
+    }
+
     boolean ready() {
-        return !closed && error == null && devices > 0
-                && remote != null && remote.asBinder().isBinderAlive()
+        return error == null && devices > 0 && connected()
                 && VolumeStepSettings.isShizukuEnabled(context);
     }
 
     private void binderDied() {
-        ++generation;
-        remote = null;
-        binding = false;
-        devices = 0;
+        disconnect();
         error = "input connection stopped";
         changed.run();
     }
 
     private void disconnect() {
+        handler.removeCallbacks(bindingTimeout);
         ++generation;
         remote = null;
         devices = 0;
+        ServiceConnection previous = connection;
+        connection = null;
         if (binding) {
             binding = false;
-            try { Shizuku.unbindUserService(args, connection, true); }
+            try { Shizuku.unbindUserService(args, previous, true); }
             catch (RuntimeException ignored) { }
         }
     }

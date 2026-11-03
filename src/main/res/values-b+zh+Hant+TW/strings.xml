@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Taiwan uses the shared Traditional Chinese vocabulary. This locale is
+         explicit so Android's app-language settings also list Taiwan. -->
+    <string name="app_name">精準音量</string>
+</resources>

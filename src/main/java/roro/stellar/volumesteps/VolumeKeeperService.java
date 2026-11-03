@@ -7,6 +7,7 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.content.pm.ServiceInfo;
 import android.media.AudioManager;
 import android.os.Build;
@@ -121,6 +122,12 @@ public final class VolumeKeeperService extends Service {
         return null;
     }
 
+    @Override public void onConfigurationChanged(Configuration configuration) {
+        super.onConfigurationChanged(configuration);
+        createNotificationChannel();
+        refreshNotification();
+    }
+
     @Override protected void dump(FileDescriptor fd, PrintWriter writer, String[] args) {
         writer.println("version=" + getPackageName());
         writer.println("enabled=" + VolumeStepSettings.isEnabled(this)
@@ -174,7 +181,7 @@ public final class VolumeKeeperService extends Service {
                 && companion != R.string.compatibility_input_ready;
         boolean needsRoot = VolumeStepSettings.mode(this) == OperatingMode.ROOT;
         if (needsRoot) {
-            String rootStatus = adjustmentController == null ? "Root 尚未连接"
+            String rootStatus = adjustmentController == null ? getString(R.string.root_not_connected)
                     : adjustmentController.rootStatus();
             missingKeys = adjustmentController == null || !adjustmentController.rootInputReady();
             if (missingKeys) text += "\n" + rootStatus;

@@ -209,8 +209,9 @@ class Device:
                 - int(re.findall(r"\d+", n.get("bounds"))[0])))
 
         def confirm(text):
+            labels = {"关闭": {"关闭", "關閉"}, "允许": {"允许", "允許"}}.get(text, {text})
             node = next((n for n in self.ui() if n.get("package") == "com.android.settings"
-                         and n.get("text") == text and n.get("enabled") == "true"), None)
+                         and n.get("text") in labels and n.get("enabled") == "true"), None)
             if node is not None:
                 self.tap(node)
 

@@ -12,7 +12,7 @@
     <application android:allowBackup="false" android:fullBackupContent="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@drawable/ic_compatibility_volume"
-        android:label="精准音量兼容助手（独立应用）" android:supportsRtl="true">
+        android:label="@string/helper_app_name" android:supportsRtl="true">
         <provider android:name=".CompatibilityVolumeProvider" android:exported="true"
             android:authorities="com.vivo.finevolumesteps.helper.volume"
             android:directBootAware="true"

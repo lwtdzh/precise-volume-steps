@@ -17,6 +17,7 @@ final class SetupShellBridge {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Shizuku.UserServiceArgs args;
+    private final Context context;
     private Consumer<String> pending;
     private boolean binding, closed;
     private final ServiceConnection connection = new ServiceConnection() {
@@ -24,15 +25,16 @@ final class SetupShellBridge {
             ISetupShell remote = ISetupShell.Stub.asInterface(binder);
             worker.execute(() -> {
                 String report;
-                try { report = remote.setup(Process.myUid() / 100000); }
-                catch (Exception exception) { report = "自动授权失败，请使用权限指南"; }
+                try { report = SetupReport.format(context, remote.setup(Process.myUid() / 100000)); }
+                catch (Exception exception) { report = context.getString(R.string.setup_failed); }
                 String result = report;
                 handler.post(() -> finish(result));
             });
         }
-        @Override public void onServiceDisconnected(ComponentName name) { finish("Shizuku 已断开"); }
+        @Override public void onServiceDisconnected(ComponentName name) { finish(context.getString(R.string.setup_shizuku_disconnected)); }
     };
     SetupShellBridge(Context context) {
+        this.context = context;
         int version;
         try { version = (int) context.getPackageManager().getPackageInfo(context.getPackageName(), 0).getLongVersionCode(); }
         catch (Exception exception) { version = 28; }
@@ -46,8 +48,8 @@ final class SetupShellBridge {
         binding = true;
         try {
             Shizuku.bindUserService(args, connection);
-            handler.postDelayed(() -> finish("自动授权超时，请使用权限指南"), 45000);
-        } catch (RuntimeException exception) { finish("Shizuku 授权服务启动失败"); }
+            handler.postDelayed(() -> finish(context.getString(R.string.setup_timeout)), 45000);
+        } catch (RuntimeException exception) { finish(context.getString(R.string.setup_shizuku_start_failed)); }
     }
     private void finish(String result) {
         Consumer<String> callback = pending;

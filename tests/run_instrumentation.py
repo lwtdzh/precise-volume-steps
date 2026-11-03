@@ -17,6 +17,7 @@ SUITES = {
     "frames": "FinalPanelInstrumentation",
     "layout": "OverlayStabilityInstrumentation",
     "screen-off": "ScreenOffInstrumentation",
+    "released-key-wake": "ReleasedKeyWakeInstrumentation",
     "modes": "OperatingModesInstrumentation",
     "locked-raw-timing": "LockedRawTimingInstrumentation",
     "shizuku-status": "ShizukuStatusInstrumentation",
@@ -47,12 +48,12 @@ def main():
                         help="Expected root or ADB Shizuku server UID")
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
-    if args.suite in ("frames", "screen-off", "modes", "shizuku-status") and not args.serial.startswith("emulator-"):
+    if args.suite in ("frames", "screen-off", "released-key-wake", "modes", "shizuku-status") and not args.serial.startswith("emulator-"):
         parser.error("Rejection/frame and screen-off fixtures are disposable-emulator only")
     if args.steps is not None and not 5 <= args.steps <= 150:
         parser.error("steps must be between 5 and 150")
-    if args.steps is not None and args.suite != "backend":
-        parser.error("--steps is supported by the backend fixture only")
+    if args.steps is not None and args.suite not in ("backend", "released-key-wake"):
+        parser.error("--steps is supported by the backend and released-key-wake fixtures only")
     output = args.output.resolve()
     if output == ROOT or ROOT in output.parents:
         parser.error("Store device captures outside the repository, for example /tmp/pvs-tests")
@@ -104,7 +105,7 @@ def main():
         (output / (prefix + "-setup-failure.json")).write_text(json.dumps(report, indent=2))
         raise SystemExit("; ".join(mismatches))
     helper_digest = installed_hash("com.vivo.finevolumesteps.helper") if (
-        args.suite == "locked-raw-timing"
+        args.suite in ("locked-raw-timing", "released-key-wake")
         or args.suite == "backend" and args.backend == "companion") else None
     fixture = ROOT / "tests/host/src/main/java/roro/stellar/volumesteps/testhost" / (
         SUITES[args.suite] + ".java")
@@ -112,8 +113,8 @@ def main():
     command = ["adb", "-s", args.serial, "shell", "am", "instrument", "-w"]
     if args.suite == "backend":
         command += ["-e", "backend", args.backend]
-        if args.steps is not None:
-            command += ["-e", "steps", str(args.steps)]
+    if args.steps is not None:
+        command += ["-e", "steps", str(args.steps)]
     if args.suite == "shizuku-status":
         command += ["-e", "expected", args.expected_status,
                     "-e", "expected_uid", str(args.expected_uid)]

@@ -16,6 +16,7 @@ import rikka.shizuku.Shizuku;
 
 /** Service-owned connection; never asks for permission without a setup action. */
 final class ShizukuVolumeBridge {
+    private static final long BIND_TIMEOUT_MS = 10000;
     private final Context context;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -26,28 +27,41 @@ final class ShizukuVolumeBridge {
     private boolean binding;
     private boolean closed;
     private String error;
+    private ServiceConnection connection;
+    private final Runnable bindingTimeout = this::bindingTimedOut;
+
+    private void bindingTimedOut() {
+        disconnect();
+        error = "helper connection timed out";
+        changed.run();
+    }
     private final Shizuku.OnBinderReceivedListener received = this::connect;
     private final Shizuku.OnBinderDeadListener dead = this::binderDied;
     private final Shizuku.OnRequestPermissionResultListener permission =
             (code, result) -> connect();
-    private final ServiceConnection connection = new ServiceConnection() {
-        @Override public void onServiceConnected(ComponentName name, IBinder binder) {
-            if (closed || !VolumeStepSettings.isShizukuEnabled(context)) {
-                disconnect();
-                return;
+
+    private ServiceConnection newConnection() {
+        return new ServiceConnection() {
+            @Override public void onServiceConnected(ComponentName name, IBinder binder) {
+                if (connection != this) return;
+                if (closed || !VolumeStepSettings.isShizukuEnabled(context)) {
+                    disconnect();
+                    return;
+                }
+                handler.removeCallbacks(bindingTimeout);
+                remote = IVolumeShell.Stub.asInterface(binder);
+                error = null;
+                changed.run();
             }
-            remote = IVolumeShell.Stub.asInterface(binder);
-            error = null;
-            changed.run();
-        }
-        @Override public void onServiceDisconnected(ComponentName name) {
-            invalidate();
-            remote = null;
-            binding = false;
-            error = "helper disconnected";
-            changed.run();
-        }
-    };
+
+            @Override public void onServiceDisconnected(ComponentName name) {
+                if (connection != this) return;
+                disconnect();
+                error = "helper disconnected";
+                changed.run();
+            }
+        };
+    }
 
     ShizukuVolumeBridge(Context context, Runnable changed) {
         this.context = context;
@@ -74,27 +88,36 @@ final class ShizukuVolumeBridge {
             return;
         }
         try {
-            if (!Shizuku.pingBinder() || Shizuku.isPreV11()
-                    || !ShizukuServerIdentity.supported(Shizuku.getUid())
-                    || Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
+            if (authorizationStatus() != R.string.shizuku_authorized) {
+                if (binding) {
+                    disconnect();
+                    changed.run();
+                }
                 return;
             }
+            if (remote != null && !remote.asBinder().isBinderAlive()) disconnect();
             if (!binding) {
                 error = null;
                 binding = true;
+                connection = newConnection();
+                handler.postDelayed(bindingTimeout, BIND_TIMEOUT_MS);
                 Shizuku.bindUserService(args, connection);
+                changed.run();
             }
         } catch (RuntimeException exception) {
-            binding = false;
+            disconnect();
             error = exception.getClass().getSimpleName();
+            changed.run();
         }
-        changed.run();
+    }
+
+    boolean connected() {
+        IVolumeShell service = remote;
+        return !closed && service != null && service.asBinder().isBinderAlive();
     }
 
     boolean ready() {
-        IVolumeShell service = remote;
-        return !closed && VolumeStepSettings.isShizukuEnabled(context)
-                && service != null && service.asBinder().isBinderAlive();
+        return VolumeStepSettings.isShizukuEnabled(context) && connected();
     }
 
     void invalidate() {
@@ -102,9 +125,7 @@ final class ShizukuVolumeBridge {
     }
 
     private void binderDied() {
-        invalidate();
-        remote = null;
-        binding = false;
+        disconnect();
         error = null;
         changed.run();
     }
@@ -170,12 +191,15 @@ final class ShizukuVolumeBridge {
     }
 
     private void disconnect() {
+        handler.removeCallbacks(bindingTimeout);
         invalidate();
         remote = null;
+        ServiceConnection previous = connection;
+        connection = null;
         if (binding) {
             binding = false;
             try {
-                Shizuku.unbindUserService(args, connection, true);
+                Shizuku.unbindUserService(args, previous, true);
             } catch (RuntimeException ignored) { }
         }
     }

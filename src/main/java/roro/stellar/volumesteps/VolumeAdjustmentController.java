@@ -28,6 +28,7 @@ final class VolumeAdjustmentController {
     private static final long KEY_TIMEOUT_MS = 700;
     private static final long WRITE_TIMEOUT_MS = 1000;
     private static final long POLL_MS = 250;
+    private static final long SHIZUKU_INSPECT_MS = 2000;
     private static final long RAW_SETTLE_MS = 300;
     private static final long BLUETOOTH_MASK_POLL_MS = 5;
     private static final long BLUETOOTH_MASK_ARM_MS = POLL_MS + 100;
@@ -41,6 +42,7 @@ final class VolumeAdjustmentController {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final VolumeOverlayController overlay;
     private final ShizukuVolumeBridge shizuku;
+    private final ShizukuBinderDiscovery shizukuDiscovery;
     private final ShizukuKeyBridge rawKeys;
     private final RootVolumeBridge root;
     private final RawVolumePress rawPress = new RawVolumePress();
@@ -68,6 +70,7 @@ final class VolumeAdjustmentController {
     private int lastDownCode;
     private String lastKeyAction = "none";
     private long lastVolumeTime;
+    private long lastShizukuInspection;
     private long lastBluetoothMaskArm;
     private int lastBluetoothMaskOrigin = -1;
     private String lastSource = "none";
@@ -97,6 +100,18 @@ final class VolumeAdjustmentController {
             }
             refreshAssistantInputPrewarm();
             refreshPrivilegedBluetoothMask();
+            long now = SystemClock.uptimeMillis();
+            if (VolumeStepSettings.isShizukuEnabled(context)
+                    && (!shizuku.connected() || !rawKeys.connected())
+                    && now - lastShizukuInspection >= SHIZUKU_INSPECT_MS) {
+                lastShizukuInspection = now;
+                // A grant made by the manager need not produce a permission
+                // request callback. Inspect only while a service is missing;
+                // connected services use Binder death/disconnect callbacks.
+                shizukuDiscovery.inspect();
+                shizuku.connect();
+                rawKeys.connect();
+            }
             handler.postDelayed(this, POLL_MS);
         }
     };
@@ -122,6 +137,7 @@ final class VolumeAdjustmentController {
         keyWakeLock.setReferenceCounted(false);
         overlay = new VolumeOverlayController(context);
         shizuku = new ShizukuVolumeBridge(context, VolumeKeeperService::refreshNotification);
+        shizukuDiscovery = new ShizukuBinderDiscovery(context);
         compatibility = new CompatibilityVolumeBridge(context,
                 VolumeKeeperService::refreshNotification,
                 (code, value, observedAfter, observedAt) ->
@@ -220,7 +236,9 @@ final class VolumeAdjustmentController {
         if (code == RawVolumeKeyParser.POWER) {
             if (value == 1) {
                 rawPress.down(node, code, observedAt, now, false);
-                if (gesture != null && gesture.raw) cancelPending();
+                // Power is a chord only while volume is still held. A completed
+                // release may be waiting for native writes to settle when waking.
+                if (gesture != null && gesture.raw && !gesture.released) cancelPending();
             } else if (value == 0) {
                 rawPress.up(node, code, observedAt, now);
             }
@@ -232,7 +250,7 @@ final class VolumeAdjustmentController {
                 && audio.getMode() == AudioManager.MODE_NORMAL;
         if (value == 1) {
             if (!rawPress.down(node, code, observedAt, now, eligible)) {
-                if (gesture != null && gesture.raw) cancelPending();
+                if (gesture != null && gesture.raw && !gesture.released) cancelPending();
                 return;
             }
             lastKeyTime = now;
@@ -258,6 +276,7 @@ final class VolumeAdjustmentController {
             int count = rawPress.up(node, code, observedAt, now);
             Gesture active = gesture;
             if (active == null || !active.raw) return;
+            if (active.released) return; // A duplicate/unmatched up cannot retire an accepted release.
             if (count == 0 || !eligible) { cancelPending(); return; }
             int direction = code == RawVolumeKeyParser.UP ? 1 : -1;
             for (int n = 1; n < count; n++) active.directions.add(direction);
@@ -510,7 +529,7 @@ final class VolumeAdjustmentController {
         }
         if (active.raw && !active.released) return;
         if (active.ordinaryIdle && !active.released) return;
-        if (active.raw && (!explicitInputReady(active) || !nonInteractive()
+        if (active.raw && (!explicitInputReady(active)
                 || audio.getMode() != AudioManager.MODE_NORMAL)) {
             cancelPending();
             return;
@@ -744,7 +763,7 @@ final class VolumeAdjustmentController {
     private void applyRawIdleKey(Gesture active) {
         int stream = AudioManager.STREAM_MUSIC;
         if (!inScope(stream) || audio.getMode() != AudioManager.MODE_NORMAL
-                || !nonInteractive() || !explicitInputReady(active)) {
+                || !active.released || !explicitInputReady(active)) {
             record("raw idle key skipped stream=" + stream
                     + " mode=" + audio.getMode() + " a2dp=" + audio.isBluetoothA2dpOn());
             gesture = null;
@@ -784,7 +803,7 @@ final class VolumeAdjustmentController {
 
     private boolean explicitInputReady(Gesture active) {
         return active.mode == VolumeStepSettings.mode(context)
-                && (active.companionInput ? companionInputOwnsKeys()
+                && (active.companionInput ? compatibility.inputReady()
                 : active.mode == OperatingMode.ROOT ? root.inputReady() : rawKeys.ready());
     }
 
@@ -1102,6 +1121,7 @@ final class VolumeAdjustmentController {
         VolumeStepSettings.preferences(context).unregisterOnSharedPreferenceChangeListener(settingsListener);
         cancelPending();
         shizuku.close();
+        shizukuDiscovery.close();
         rawKeys.close();
         root.close();
         compatibility.close();
