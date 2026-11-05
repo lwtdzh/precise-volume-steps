@@ -7,13 +7,13 @@ import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashSet;
 import java.util.concurrent.TimeUnit;
 
-/** Grants only this application's standard permissions, preserving other services. */
+/** Grants only this application's fixed permissions, preserving other services. */
 final class PrivilegedSetup {
     static final String PACKAGE = "roro.stellar.volumesteps";
     static final String ACCESSIBILITY = PACKAGE + "/" + PACKAGE + ".FineVolumeAccessibilityService";
 
     static String run(int user) {
-        if (user < 0 || user > 21474) throw new IllegalArgumentException("Invalid Android user");
+        validateUser(user);
         String u = Integer.toString(user);
         SetupReport report = new SetupReport();
         if (Build.VERSION.SDK_INT >= 33)
@@ -26,24 +26,25 @@ final class PrivilegedSetup {
         grant(report, R.string.setup_background_start, "cmd", "appops", "set", "--user", u, PACKAGE,
                 "RUN_ANY_IN_BACKGROUND", "allow");
         grant(report, R.string.setup_battery, "cmd", "deviceidle", "whitelist", "+" + PACKAGE);
-        Result existing = command("settings", "--user", u, "get", "secure",
-                "enabled_accessibility_services");
-        if (existing.ok) {
-            String merged = mergeAccessibility(existing.text);
-            Result write = command("settings", "--user", u, "put", "secure",
-                    "enabled_accessibility_services", merged);
-            Result enable = command("settings", "--user", u, "put", "secure",
-                    "accessibility_enabled", "1");
-            Result read = command("settings", "--user", u, "get", "secure",
-                    "enabled_accessibility_services");
-            boolean confirmed = read.ok && containsOwnService(read.text);
-            report.add(R.string.setup_accessibility, write.ok && enable.ok && confirmed
-                    ? R.string.setup_accessibility_written : R.string.setup_accessibility_manual);
-        } else {
-            report.add(R.string.setup_accessibility, R.string.setup_accessibility_manual);
-        }
+        report.add(R.string.setup_accessibility, enableAccessibility(user)
+                ? R.string.setup_accessibility_written : R.string.setup_accessibility_manual);
         report.add(R.string.setup_vendor, R.string.setup_vendor_manual);
         return report.encode();
+    }
+
+    static boolean enableAccessibility(int user) {
+        validateUser(user);
+        String u = Integer.toString(user);
+        Result existing = command("settings", "--user", u, "get", "secure",
+                "enabled_accessibility_services");
+        if (!existing.ok) return false;
+        Result write = command("settings", "--user", u, "put", "secure",
+                "enabled_accessibility_services", mergeAccessibility(existing.text));
+        Result enable = command("settings", "--user", u, "put", "secure",
+                "accessibility_enabled", "1");
+        Result read = command("settings", "--user", u, "get", "secure",
+                "enabled_accessibility_services");
+        return write.ok && enable.ok && read.ok && containsOwnService(read.text);
     }
 
     static String mergeAccessibility(String existing) {
@@ -59,10 +60,16 @@ final class PrivilegedSetup {
 
     static boolean containsOwnService(String value) {
         ComponentName own = ComponentName.unflattenFromString(ACCESSIBILITY);
-        if (value != null)
-            for (String item : value.trim().split(":"))
+        if (value != null) {
+            for (String item : value.trim().split(":")) {
                 if (own.equals(ComponentName.unflattenFromString(item))) return true;
+            }
+        }
         return false;
+    }
+
+    private static void validateUser(int user) {
+        if (user < 0 || user > 21474) throw new IllegalArgumentException("Invalid Android user");
     }
 
     private static void grant(SetupReport report, int label, String... args) {

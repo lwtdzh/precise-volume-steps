@@ -17,8 +17,8 @@ android {
         applicationId 'roro.stellar.volumesteps'
         minSdk 28
         targetSdk 37
-        versionCode 29
-        versionName '1.5.1'
+        versionCode 31
+        versionName '1.5.3'
     }
 
     buildFeatures {

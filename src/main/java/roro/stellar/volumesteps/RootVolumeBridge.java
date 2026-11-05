@@ -149,6 +149,12 @@ final class RootVolumeBridge {
             });
         });
     }
+    boolean setupIfReady(Consumer<String> result) {
+        if (!ready() || setupResult != null) return false;
+        setupResult = result;
+        setup(result);
+        return true;
+    }
     boolean ready() { return !closed && selected() && remote != null && remote.asBinder().isBinderAlive(); }
     boolean inputReady() { return ready() && devices > 0 && inputError == null; }
     void invalidate() { writes.incrementAndGet(); }

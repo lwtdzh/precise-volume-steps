@@ -48,10 +48,10 @@
     <string name="home_permissions">權限與背景執行</string>
     <string name="home_permission_guide">查看權限指南</string>
     <string name="home_advanced">更多設定與診斷</string>
-    <string name="root_mode_help">適合已 Root 的手機。允許此應用程式使用 Root 後即可執行，無需 Shizuku 或助手。</string>
+    <string name="root_mode_help">適合已 Root 的手機。Root 會在螢幕開啟、鎖定和關閉狀態下直接讀取音量鍵；應用程式會自動恢復無障礙服務用於鎖定畫面面板，音量修正本身不依賴無障礙。</string>
     <string name="root_setup">授權 Root 並完成設定</string>
     <string name="root_enable_first">請先啟用精準音量，再進行 Root 授權。</string>
-    <string name="shizuku_mode_help">先啟動 Shizuku，再允許此應用程式存取。自動設定標準權限，執行期間需保持 Shizuku 可用。</string>
+    <string name="shizuku_mode_help">先啟動 Shizuku，再允許此應用程式存取。Shizuku 會在各種螢幕狀態下直接讀取音量鍵；應用程式會自動恢復無障礙服務用於鎖定畫面面板，音量修正本身不依賴無障礙。</string>
     <string name="shizuku_mode_setup">連線至 Shizuku 並完成設定</string>
     <string name="assistant_vivo_help">無需 Root 或 Shizuku。開啟無障礙服務即可使用；vivo / iQOO 可安裝內建助手改善背景調整，再用電腦 ADB 一次性授權螢幕關閉時的按鍵監聽。</string>
     <string name="assistant_mode_help">無需 Root 或 Shizuku。開啟無障礙服務即可使用，螢幕關閉時能否收到按鍵取決於手機系統。</string>
@@ -73,10 +73,12 @@
     <string name="scope_all_short">所有音量</string>
     <string name="root_guide_help">Root 模式可自動設定下列標準權限。返回首頁點選「授權 Root 並完成設定」。</string>
     <string name="shizuku_guide_help">Shizuku 模式可自動設定下列標準權限。返回首頁點選「連線至 Shizuku 並完成設定」。</string>
-    <string name="privileged_guide_summary">螢幕開啟時的按鍵需要無障礙服務；系統若阻止自動開啟，請點選下方入口手動設定。廠商自動啟動與背景限制需在系統頁面確認。</string>
+    <string name="privileged_guide_summary">Shizuku 和 Root 會直接讀取音量鍵，並自動恢復本應用程式的無障礙服務用於鎖定畫面面板，無需手動設定無障礙。請在下方檢查其他權限。</string>
     <string name="service_enabled">音量按鍵辨識已連線</string>
     <string name="service_connecting">按鍵辨識正在連線，音量修正暫時暫停</string>
     <string name="service_disabled">請開啟無障礙服務以啟用音量按鍵修正</string>
+    <string name="privileged_key_reader_connected">特權音量按鍵讀取已連線</string>
+    <string name="privileged_key_reader_connecting">正在等待 Shizuku 或 Root 音量按鍵讀取服務</string>
     <string name="open_accessibility_settings">開啟無障礙設定</string>
     <string name="permission_guide_button">權限設定指南</string>
     <string name="permission_guide_title">權限設定指南</string>
@@ -108,6 +110,7 @@
     <string name="correction_start_failed">背景服務啟動失敗，請檢查系統背景限制</string>
     <string name="correction_running">背景音量修正執行中</string>
     <string name="correction_waiting_accessibility">背景服務執行中，等待音量按鍵服務</string>
+    <string name="correction_waiting_privileged_keys">背景服務執行中，等待所選特權按鍵讀取服務</string>
     <string name="autostart_vendor_required">系統自動啟動權限需手動確認</string>
     <string name="autostart_standard">已宣告 Android 標準開機權限，無需額外的自動啟動授權</string>
     <string name="accessibility_setup_title">開啟音量按鍵服務</string>
@@ -157,7 +160,7 @@
     <string name="shizuku_setup">設定 Shizuku 連線</string>
     <string name="shizuku_connect">連線並授權</string>
     <string name="shizuku_disable">使用一般模式</string>
-    <string name="shizuku_help">此模式透過 Shizuku 的 Root 或 ADB 權限修正音量，並在鎖定或螢幕關閉時直接監聽專用裝置的音量鍵與電源鍵。螢幕解鎖後仍使用無障礙服務辨識音量鍵。不會讀取觸控座標或文字按鍵。\n\n請先透過 Root、無線偵錯或電腦 ADB 啟動 Shizuku，再授權精準音量。部分 vivo 系統會在螢幕關閉時攔截音量鍵；僅負責寫入音量的相容助手無法處理這些按鍵，此時需要 Shizuku 按鍵監聽。\n\n系統的螢幕關閉快捷功能仍可能回應音量鍵。請關閉與音量鍵衝突的快速啟動、快速拍照等設定。螢幕關閉時長按，會在放開後依重複次數或按住時間調整；通話期間由系統處理。\n\n手機重新啟動後，請檢查 Shizuku 是否已啟動；透過無線偵錯或 ADB 啟動的服務需重新啟動。連線中斷時會使用一般模式；被系統封鎖的螢幕關閉按鍵將無法辨識。應用程式頁面會顯示目前連線狀態。</string>
+    <string name="shizuku_help">此模式透過 Shizuku 的 Root 或 ADB 權限修正音量，並在解鎖、鎖定和螢幕關閉狀態下直接監聽專用裝置的音量鍵與電源鍵。應用程式會自動恢復無障礙服務用於 vivo 鎖定畫面面板；按鍵辨識和音量修正仍走特權通道，不依賴該服務。不會讀取觸控座標或文字按鍵。\n\n請先透過 Root、無線偵錯或電腦 ADB 啟動 Shizuku，再授權精準音量。部分 vivo 系統會在螢幕關閉時攔截音量鍵；僅負責寫入音量的相容助手無法處理這些按鍵，此時需要 Shizuku 按鍵監聽。\n\n系統的螢幕關閉快捷功能仍可能回應音量鍵。請關閉與音量鍵衝突的快速啟動、快速拍照等設定。螢幕關閉時長按，會在放開後依重複次數或按住時間調整；通話期間由系統處理。\n\n手機重新啟動後，請檢查 Shizuku 是否已啟動；透過無線偵錯或 ADB 啟動的服務需重新啟動。連線中斷時按鍵修正會暫停，直到 Shizuku 恢復連線。應用程式頁面會顯示目前連線狀態。</string>
     <string name="shizuku_off">Shizuku 已關閉</string>
     <string name="shizuku_not_running">Shizuku 未執行 · 螢幕關閉按鍵監聽已停止，請重新啟動 Shizuku</string>
     <string name="shizuku_unsupported">請使用透過 Root、ADB 或無線偵錯啟動的 Shizuku（v11 以上）</string>

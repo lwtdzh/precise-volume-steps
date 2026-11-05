@@ -48,10 +48,10 @@
     <string name="home_permissions">権限とバックグラウンド動作</string>
     <string name="home_permission_guide">権限ガイドを開く</string>
     <string name="home_advanced">その他の設定と診断</string>
-    <string name="root_mode_help">Root 化した端末向けです。このアプリに Root 権限を許可すると、Shizuku やヘルパーなしで動作します。</string>
+    <string name="root_mode_help">Root 化した端末向けです。Root は画面の状態にかかわらず音量キーを直接読み取ります。ロック画面のパネル用にユーザー補助サービスを自動で復元しますが、音量補正自体は依存しません。</string>
     <string name="root_setup">Root を許可して設定</string>
     <string name="root_enable_first">Root を許可する前に精密音量を有効にしてください。</string>
-    <string name="shizuku_mode_help">Shizuku を起動して、このアプリのアクセスを許可してください。標準権限は自動で設定されます。使用中は Shizuku を起動したままにしてください。</string>
+    <string name="shizuku_mode_help">Shizuku を起動して、このアプリのアクセスを許可してください。Shizuku は画面の状態にかかわらず音量キーを直接読み取ります。ロック画面のパネル用にユーザー補助サービスを自動で復元しますが、音量補正自体は依存しません。</string>
     <string name="shizuku_mode_setup">Shizuku に接続して設定</string>
     <string name="assistant_vivo_help">Root や Shizuku は不要です。ユーザー補助サービスを有効にすると使えます。vivo / iQOO では、同梱ヘルパーでバックグラウンド調整を改善できます。画面消灯時のキー監視は、パソコンの ADB で一度だけ許可してください。</string>
     <string name="assistant_mode_help">Root や Shizuku は不要です。ユーザー補助サービスを有効にすると使えます。画面消灯時にキー操作を検出できるかは端末のシステムによります。</string>
@@ -73,10 +73,12 @@
     <string name="scope_all_short">すべての音量</string>
     <string name="root_guide_help">Root モードでは、以下の標準権限を自動で設定できます。ホーム画面に戻り「Root を許可して設定」をタップしてください。</string>
     <string name="shizuku_guide_help">Shizuku モードでは、以下の標準権限を自動で設定できます。ホーム画面に戻り「Shizuku に接続して設定」をタップしてください。</string>
-    <string name="privileged_guide_summary">画面点灯時のキー操作にはユーザー補助サービスが必要です。自動設定がブロックされた場合は、以下から手動で有効にしてください。メーカーの自動起動とバックグラウンド制限はシステム設定で確認してください。</string>
+    <string name="privileged_guide_summary">Shizuku と Root は音量キーを直接読み取り、ロック画面のパネル用にこのアプリのユーザー補助サービスを自動で復元します。手動設定は不要です。その他の権限を以下で確認してください。</string>
     <string name="service_enabled">音量キーサービス接続済み</string>
     <string name="service_connecting">キーサービスに接続中です。音量補正は一時停止しています。</string>
     <string name="service_disabled">音量キーの補正にはユーザー補助サービスを有効にしてください</string>
+    <string name="privileged_key_reader_connected">特権音量キーリーダー接続済み</string>
+    <string name="privileged_key_reader_connecting">Shizuku または Root の音量キーリーダーを待機しています</string>
     <string name="open_accessibility_settings">ユーザー補助の設定を開く</string>
     <string name="permission_guide_button">権限の設定ガイド</string>
     <string name="permission_guide_title">権限の設定ガイド</string>
@@ -108,6 +110,7 @@
     <string name="correction_start_failed">バックグラウンドサービスを起動できません。システムの制限を確認してください。</string>
     <string name="correction_running">バックグラウンドで音量補正が動作中</string>
     <string name="correction_waiting_accessibility">バックグラウンドサービス動作中。音量キーサービスを待機しています。</string>
+    <string name="correction_waiting_privileged_keys">バックグラウンドサービス動作中。選択した特権キーリーダーを待機しています。</string>
     <string name="autostart_vendor_required">システムの自動起動権限を手動で確認してください</string>
     <string name="autostart_standard">Android 標準の起動権限を宣言済み。追加の自動起動許可は不要です。</string>
     <string name="accessibility_setup_title">音量キーサービスを有効にする</string>
@@ -157,7 +160,7 @@
     <string name="shizuku_setup">Shizuku 接続を設定</string>
     <string name="shizuku_connect">接続して許可</string>
     <string name="shizuku_disable">ヘルパーモードを使用</string>
-    <string name="shizuku_help">このモードは Shizuku の Root または ADB 権限で音量を調整し、ロック中・消灯中は専用入力デバイスの音量キーと電源キーを直接監視します。ロック解除後はユーザー補助サービスで音量キーを検出します。タッチ座標や文字キーは読み取りません。\n\nRoot、ワイヤレスデバッグ、またはパソコンの ADB で Shizuku を起動し、精密音量を許可してください。一部の vivo システムは消灯中の音量キーを横取りします。音量の書き込みだけを行うヘルパーでは対応できず、その場合は Shizuku のキー監視が必要です。\n\nシステムの消灯中ショートカットも音量キーに反応する場合があります。クイック起動やカメラ起動など、競合する設定を無効にしてください。消灯中の長押しは、キーを離した後に繰り返し回数や押した時間に応じて調整します。通話中はシステムが処理します。\n\n端末の再起動後は Shizuku が起動しているか確認してください。ワイヤレスデバッグや ADB で起動したサービスは再起動が必要です。接続が切れた場合はヘルパーモードを使用しますが、システムが遮断した消灯中のキーは検出できません。アプリに現在の接続状態を表示します。</string>
+    <string name="shizuku_help">このモードは Shizuku の Root または ADB 権限で音量を調整し、ロック解除中、ロック中、消灯中のすべてで専用入力デバイスの音量キーと電源キーを直接監視します。vivo のロック画面パネル用にユーザー補助サービスを自動で復元しますが、キー検出と音量補正は特権経路を使い、このサービスには依存しません。タッチ座標や文字キーは読み取りません。\n\nRoot、ワイヤレスデバッグ、またはパソコンの ADB で Shizuku を起動し、精密音量を許可してください。一部の vivo システムは消灯中の音量キーを横取りします。音量の書き込みだけを行うヘルパーでは対応できず、その場合は Shizuku のキー監視が必要です。\n\nシステムの消灯中ショートカットも音量キーに反応する場合があります。クイック起動やカメラ起動など、競合する設定を無効にしてください。消灯中の長押しは、キーを離した後に繰り返し回数や押した時間に応じて調整します。通話中はシステムが処理します。\n\n端末の再起動後は Shizuku が起動しているか確認してください。ワイヤレスデバッグや ADB で起動したサービスは再起動が必要です。接続が切れるとキー補正は停止し、Shizuku の再接続後に再開します。アプリに現在の接続状態を表示します。</string>
     <string name="shizuku_off">Shizuku は無効です</string>
     <string name="shizuku_not_running">Shizuku 未起動 · 消灯中のキー監視を停止しました。Shizuku を起動してください。</string>
     <string name="shizuku_unsupported">Root、ADB、ワイヤレスデバッグで起動した Shizuku v11 以降を使用してください</string>

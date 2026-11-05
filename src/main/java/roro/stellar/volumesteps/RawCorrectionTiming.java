@@ -21,10 +21,12 @@ final class RawCorrectionTiming {
                 initial, valueAtRelease, lastDirection));
     }
 
-    static boolean shouldApplyOnLitKeyguard(boolean interactive, boolean locked,
-                                            boolean matchedRelease, int initial,
-                                            int current, int direction) {
-        return interactive && locked && matchedRelease && initial >= 0 && current >= 0
+    static boolean shouldApplyOnInteractiveScreen(boolean interactive,
+                                                  boolean rawOwnsInteractiveKeys,
+                                                  boolean matchedRelease, int initial,
+                                                  int current, int direction) {
+        return interactive && rawOwnsInteractiveKeys && matchedRelease
+                && initial >= 0 && current >= 0
                 && (direction == -1 || direction == 1)
                 && (current == initial || Integer.signum(current - initial) == direction);
     }

@@ -6,16 +6,25 @@ import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 public final class RawCorrectionTimingTest {
-    @Test public void litKeyguardReleaseCanCorrectBeforeSettle() {
-        assertTrue(RawCorrectionTiming.shouldApplyOnLitKeyguard(true, true, true, 105, 95, -1));
-        assertTrue(RawCorrectionTiming.shouldApplyOnLitKeyguard(true, true, true, 105, 105, -1));
-        assertTrue(RawCorrectionTiming.shouldApplyOnLitKeyguard(true, true, true, 105, 115, 1));
-        assertFalse(RawCorrectionTiming.shouldApplyOnLitKeyguard(false, true, true, 105, 95, -1));
-        assertFalse(RawCorrectionTiming.shouldApplyOnLitKeyguard(true, false, true, 105, 95, -1));
-        assertFalse(RawCorrectionTiming.shouldApplyOnLitKeyguard(true, true, false, 105, 95, -1));
-        assertFalse(RawCorrectionTiming.shouldApplyOnLitKeyguard(true, true, true, 105, 115, -1));
-        assertFalse(RawCorrectionTiming.shouldApplyOnLitKeyguard(true, true, true, -1, 95, -1));
-        assertFalse(RawCorrectionTiming.shouldApplyOnLitKeyguard(true, true, true, 105, 95, 0));
+    @Test public void ownedInteractiveReleaseCanCorrectBeforeSettle() {
+        assertTrue(RawCorrectionTiming.shouldApplyOnInteractiveScreen(
+                true, true, true, 105, 95, -1));
+        assertTrue(RawCorrectionTiming.shouldApplyOnInteractiveScreen(
+                true, true, true, 105, 105, -1));
+        assertTrue(RawCorrectionTiming.shouldApplyOnInteractiveScreen(
+                true, true, true, 105, 115, 1));
+        assertFalse(RawCorrectionTiming.shouldApplyOnInteractiveScreen(
+                false, true, true, 105, 95, -1));
+        assertFalse(RawCorrectionTiming.shouldApplyOnInteractiveScreen(
+                true, false, true, 105, 95, -1));
+        assertFalse(RawCorrectionTiming.shouldApplyOnInteractiveScreen(
+                true, true, false, 105, 95, -1));
+        assertFalse(RawCorrectionTiming.shouldApplyOnInteractiveScreen(
+                true, true, true, 105, 115, -1));
+        assertFalse(RawCorrectionTiming.shouldApplyOnInteractiveScreen(
+                true, true, true, -1, 95, -1));
+        assertFalse(RawCorrectionTiming.shouldApplyOnInteractiveScreen(
+                true, true, true, 105, 95, 0));
     }
 
     @Test public void appliesEarlyOnlyToObservedCompanionBluetoothPlaybackStep() {

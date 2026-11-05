@@ -600,9 +600,16 @@ public final class MainActivity extends Activity {
     }
 
     private void refreshServiceStatus() {
-        boolean connected = FineVolumeAccessibilityService.isConnected();
+        OperatingMode mode = VolumeStepSettings.mode(this);
+        boolean privileged = mode != OperatingMode.ASSISTANT;
+        VolumeAdjustmentController controller = VolumeKeeperService.controller();
+        boolean connected = privileged
+                ? controller != null && controller.selectedKeyInputReady()
+                : FineVolumeAccessibilityService.isConnected();
         serviceStatus.setText(!VolumeStepSettings.isEnabled(this) ? R.string.correction_stopped
-                : connected ? R.string.service_enabled
+                : connected ? privileged ? R.string.privileged_key_reader_connected
+                        : R.string.service_enabled
+                : privileged ? R.string.privileged_key_reader_connecting
                 : AccessibilityStatus.isEnabled(this) ? R.string.service_connecting
                 : R.string.service_disabled);
         serviceStatus.setTextColor(connected ? COLOR_ACCENT : COLOR_SECONDARY);
@@ -640,8 +647,13 @@ public final class MainActivity extends Activity {
         if (!VolumeKeeperService.isRunning() || VolumeKeeperService.controller() == null) {
             return R.string.correction_starting;
         }
-        if (!FineVolumeAccessibilityService.isConnected()) {
+        OperatingMode mode = VolumeStepSettings.mode(this);
+        if (mode == OperatingMode.ASSISTANT && !FineVolumeAccessibilityService.isConnected()) {
             return R.string.correction_waiting_accessibility;
+        }
+        if (mode != OperatingMode.ASSISTANT
+                && !VolumeKeeperService.controller().selectedKeyInputReady()) {
+            return R.string.correction_waiting_privileged_keys;
         }
         return R.string.correction_running;
     }
@@ -745,15 +757,17 @@ public final class MainActivity extends Activity {
         }
 
         AlertDialog[] holder = new AlertDialog[1];
-        addPermissionGuideRow(content,
-                R.string.permission_accessibility_title,
-                state.accessibility ? R.string.permission_status_ready
-                        : R.string.permission_status_required,
-                state.accessibility,
-                R.string.open_accessibility_settings,
-                R.id.guide_accessibility,
-                holder,
-                this::openAccessibilitySettings);
+        if (mode == OperatingMode.ASSISTANT) {
+            addPermissionGuideRow(content,
+                    R.string.permission_accessibility_title,
+                    state.accessibility ? R.string.permission_status_ready
+                            : R.string.permission_status_required,
+                    state.accessibility,
+                    R.string.open_accessibility_settings,
+                    R.id.guide_accessibility,
+                    holder,
+                    this::openAccessibilitySettings);
+        }
         addPermissionGuideRow(content,
                 R.string.permission_notification_title,
                 state.notification ? R.string.permission_status_ready

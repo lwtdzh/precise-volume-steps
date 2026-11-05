@@ -28,11 +28,88 @@ References: [libsu](https://github.com/topjohnwu/libsu),
 
 `PrivilegedSetup` runs a fixed list of commands for the owning Android user:
 notification grant, overlay AppOp, background AppOps, device-idle whitelist and
-own accessibility component. Merge the current accessibility list; do not
-replace other services. Android command success means execution succeeded,
-not that an OEM allowed or bound the service. The page and permission guide
-must use actual permission and service readback. OEM startup/background limits
-and restricted accessibility settings may still require manual actions.
+the app's own accessibility component. Merge the current accessibility list;
+never replace or disable other services. Android command success means execution
+succeeded, not that an OEM bound the service. The page and permission guide use
+actual permission and service readback. OEM startup/background limits may still
+require manual actions.
+
+## Privileged unlocked raw keys in 1.5.2
+
+When the selected Shizuku or Root raw reader is ready, it owns volume keys while
+unlocked as well as locked or screen-off. Accessibility callbacks are ignored
+in that state to prevent a duplicate correction. If the selected privileged
+reader is unavailable, a connected accessibility service remains an optional
+screen-on fallback. Assistant mode is unchanged: its helper raw reader owns
+built-in keys only while locked or screen-off, and unlocked keys still use
+accessibility.
+
+A matched privileged release on an interactive display can correct immediately
+and retains the existing 300 ms late-native-write guard and one bounded retry.
+The ordinary Assistant path, calls, power chords, stale callbacks, expected
+current checks and mode generations are unchanged. Disconnecting accessibility
+does not cancel privileged raw work.
+
+Privileged setup and the permission guide no longer enable or require
+accessibility. Ordinary application overlays work while unlocked. On the tested
+Vivo firmware, a secure lit keyguard hides `TYPE_APPLICATION_OVERLAY`; volume
+correction still works without accessibility, but displaying the app panel above
+that keyguard remains an optional accessibility-overlay feature.
+
+Vivo V2419A/API 36 evidence used main 1.5.2 APK
+`7216baf4041779bbfc8faf108db26b2228183e1597ee5dc7d0d4feb38496a7e2`.
+With accessibility `null/0`, selected Shizuku and two raw devices ready, an
+unlocked external-UHID up/down pair produced exact `30→33→30` readback at
+50 configured steps. Diagnostics recorded `raw privileged screen-on` for each
+release, and cleanup restored native `0/150`, Shizuku mode and accessibility.
+This is external simulated input, not built-in physical-button evidence.
+
+SukiSU 4.3.0's allow-list contained `roro.stellar.volumesteps`; app UID 10343
+could see `/system/bin/su` and `su -c id` returned UID 0. After a normal app
+restart in Root mode, the production Root service connected with two raw devices
+while accessibility remained off. An earlier fixture incorrectly concluded that
+Root was unavailable because target-app instrumentation exited and killed the
+same process before asynchronous connection completed. Preserve that failed run;
+it is a fixture lifecycle failure, not a missing SukiSU grant. Root unlocked
+external/physical key delivery was not rerun because the phone was locked.
+
+## Automatic privileged lock-screen overlay recovery in 1.5.3
+
+`TYPE_ACCESSIBILITY_OVERLAY` is a window type owned by a connected
+`AccessibilityService`, not a standalone permission that Root or Shizuku can
+grant to an ordinary application window. When selected Shizuku or Root input is
+ready and this app's accessibility component is absent, the keeper now runs the
+same fixed privileged setup and merges only
+`roro.stellar.volumesteps/.FineVolumeAccessibilityService` into the existing
+list. It also sets the master accessibility switch. The request is made once per
+missing-service state; an enabled-but-not-bound service is observed rather than
+rewritten in a loop. A successful connection resets the guard so a later OEM or
+theme reset can be repaired again.
+
+Assistant mode never invokes this privileged recovery. Privileged raw input
+continues to own keys in every screen state, and accessibility disconnection
+does not cancel its gesture or write. If an OEM accepts the setting but refuses
+to bind the service, volume correction remains available and only the lit
+keyguard panel is missing. Diagnostics expose the request and connection state.
+
+Final 1.5.3 APK SHA-256:
+`04fc06969f7b627279abe9a6bef9b60aea30b378ba10a7cbe54ef02f5a8d58b6`.
+On Vivo V2419A/API 36, selected Shizuku recovered from both `null/0` and from
+an existing component with master switch `0`, then bound the service. Clearing
+the settings again while the process remained alive triggered a second bounded
+recovery. Normal Root mode, actual UID-0 Binder and two raw devices performed
+the same `null/0` recovery. Assistant mode retained `null/0` and reported no
+privileged request. Every recovery preserved native `0/150`.
+
+The final-hash Shizuku external-UHID fixture passed automatic merge/bind,
+`30→33→30`, privileged raw ownership, no duplicate accessibility correction,
+volume restoration and backend restoration. Two earlier fixture runs failed
+while parsing literal `null`; another passed all behavior assertions but checked
+cleanup before restarting the normal target process. Retain those as fixture
+failures. The Root mode-switch fixture again timed out before readiness, while
+an immediately following normal Root startup connected; the direct normal-process
+Root recovery is the accepted evidence. Built-in physical buttons remain a
+separate test.
 
 Root evidence from a disposable API 33 AOSP emulator includes actual `su` UID 0,
 libsu RootService Binder, AudioService writes, permission readback, rejected

@@ -49,10 +49,10 @@
     <string name="home_permissions">Permissions and background activity</string>
     <string name="home_permission_guide">View permission guide</string>
     <string name="home_advanced">More settings and diagnostics</string>
-    <string name="root_mode_help">For rooted phones. Grant this app root access to run without Shizuku or the helper.</string>
+    <string name="root_mode_help">For rooted phones. Root reads volume keys directly in every screen state. Accessibility is restored automatically for the lock-screen panel, but volume correction does not depend on it.</string>
     <string name="root_setup">Authorize Root and set up</string>
     <string name="root_enable_first">Enable Precise Volume before granting root access.</string>
-    <string name="shizuku_mode_help">Start Shizuku, then allow this app to access it. Standard permissions are set automatically. Keep Shizuku running while using this mode.</string>
+    <string name="shizuku_mode_help">Start Shizuku, then allow this app to access it. Shizuku reads volume keys directly in every screen state. Accessibility is restored automatically for the lock-screen panel, but volume correction does not depend on it.</string>
     <string name="shizuku_mode_setup">Connect Shizuku and set up</string>
     <string name="assistant_vivo_help">No Root or Shizuku required. Enable the accessibility service to start. On vivo / iQOO, install the bundled helper for background adjustments, then grant screen-off key access once using ADB on a computer.</string>
     <string name="assistant_mode_help">No Root or Shizuku required. Enable the accessibility service to start. Screen-off key delivery depends on your phone system.</string>
@@ -74,10 +74,12 @@
     <string name="scope_all_short">All volume</string>
     <string name="root_guide_help">Root mode can set the standard permissions below automatically. Return to the home screen and tap “Authorize Root and set up”.</string>
     <string name="shizuku_guide_help">Shizuku mode can set the standard permissions below automatically. Return to the home screen and tap “Connect Shizuku and set up”.</string>
-    <string name="privileged_guide_summary">Screen-on keys need the accessibility service. If automatic setup is blocked, enable it manually below. Check manufacturer auto-start and background limits in system settings.</string>
+    <string name="privileged_guide_summary">Shizuku and Root read volume keys directly. Their setup automatically restores this app’s accessibility service for the lock-screen panel, so no manual accessibility setup is needed. Check the remaining permissions below.</string>
     <string name="service_enabled">Volume key service connected</string>
     <string name="service_connecting">Key service connecting. Volume correction is paused.</string>
     <string name="service_disabled">Enable the accessibility service to correct volume key adjustments</string>
+    <string name="privileged_key_reader_connected">Privileged volume key reader connected</string>
+    <string name="privileged_key_reader_connecting">Waiting for the Shizuku or Root volume key reader</string>
     <string name="open_accessibility_settings">Open accessibility settings</string>
     <string name="permission_guide_button">Permission setup guide</string>
     <string name="permission_guide_title">Permission setup guide</string>
@@ -109,6 +111,7 @@
     <string name="correction_start_failed">Background service failed to start. Check system background limits.</string>
     <string name="correction_running">Background volume correction running</string>
     <string name="correction_waiting_accessibility">Background service running; waiting for the volume key service</string>
+    <string name="correction_waiting_privileged_keys">Background service running; waiting for the selected privileged key reader</string>
     <string name="autostart_vendor_required">Confirm system auto-start permission manually</string>
     <string name="autostart_standard">Standard Android boot permission declared; no extra auto-start grant needed</string>
     <string name="accessibility_setup_title">Enable volume key service</string>
@@ -158,7 +161,7 @@
     <string name="shizuku_setup">Set up Shizuku connection</string>
     <string name="shizuku_connect">Connect and authorize</string>
     <string name="shizuku_disable">Use helper mode</string>
-    <string name="shizuku_help">This mode adjusts volume using Shizuku root or ADB access and monitors volume and power keys directly on dedicated input devices while locked or with the screen off. After unlocking, the accessibility service still handles volume keys. Touch coordinates and text keys are not read.\n\nStart Shizuku using Root, wireless debugging, or ADB on a computer, then authorize Precise Volume. Some vivo systems intercept screen-off volume keys. A helper that only writes volume cannot handle those keys; Shizuku key monitoring is needed in that case.\n\nSystem screen-off shortcuts may still react to volume keys. Disable conflicting shortcuts such as screen-off quick launch or quick camera. Screen-off long presses adjust on release using repeat count or duration. Calls remain under system control.\n\nAfter rebooting, check that Shizuku is running. Services started using wireless debugging or ADB must be started again. If the connection drops, helper mode is used; screen-off keys blocked by the system cannot be detected. The app shows the current connection status.</string>
+    <string name="shizuku_help">This mode adjusts volume using Shizuku Root or ADB access and monitors volume and power keys directly on dedicated input devices while unlocked, locked, or with the screen off. It automatically restores this app’s accessibility service for the vivo lock-screen panel; key detection and correction remain privileged and do not depend on that service. Touch coordinates and text keys are not read.\n\nStart Shizuku using Root, wireless debugging, or ADB on a computer, then authorize Precise Volume. Some vivo systems intercept screen-off volume keys. A helper that only writes volume cannot handle those keys; Shizuku key monitoring is needed in that case.\n\nSystem screen-off shortcuts may still react to volume keys. Disable conflicting shortcuts such as screen-off quick launch or quick camera. Screen-off long presses adjust on release using repeat count or duration. Calls remain under system control.\n\nAfter rebooting, check that Shizuku is running. Services started using wireless debugging or ADB must be started again. If the connection drops, key correction pauses until Shizuku reconnects. The app shows the current connection status.</string>
     <string name="shizuku_off">Shizuku off</string>
     <string name="shizuku_not_running">Shizuku not running · Screen-off key monitoring stopped. Restart Shizuku.</string>
     <string name="shizuku_unsupported">Use Shizuku v11 or later, started with Root, ADB, or wireless debugging</string>

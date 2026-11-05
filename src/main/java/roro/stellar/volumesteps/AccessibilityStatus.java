@@ -27,4 +27,12 @@ final class AccessibilityStatus {
         }
         return false;
     }
+
+    static boolean isConfigured(Context context) {
+        return isEnabled(context) && Settings.Secure.getInt(
+                context.getContentResolver(),
+                Settings.Secure.ACCESSIBILITY_ENABLED,
+                0
+        ) == 1;
+    }
 }

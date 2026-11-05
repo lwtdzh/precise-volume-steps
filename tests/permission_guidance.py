@@ -59,6 +59,8 @@ class PermissionGuideTest:
                           "enabled_accessibility_services", "null")
         self.device.shell("settings", "put", "secure", "accessibility_enabled", "0")
         self.device.shell("pm", "clear", PACKAGE)
+        self.device.shell("cmd", "locale", "set-app-locales",
+                          PACKAGE, "--locales", "zh-CN")
         subprocess.run(["adb", "-s", self.args.serial, "shell", "pm", "revoke",
                         PACKAGE, "android.permission.POST_NOTIFICATIONS"],
                        capture_output=True, check=False)
@@ -194,7 +196,8 @@ class PermissionGuideTest:
         def visible_service(node):
             bounds = list(map(int, re.findall(r"-?\d+", node.get("bounds", ""))))
             return (node.get("package") == "com.android.settings"
-                    and "精准音量服务" in node.get("text", "")
+                    and any(label in node.get("text", "") for label in (
+                        "精准音量服务", "Precise Volume Service"))
                     and len(bounds) == 4 and min(bounds) >= 0
                     and bounds[2] > bounds[0] and bounds[3] > bounds[1])
 

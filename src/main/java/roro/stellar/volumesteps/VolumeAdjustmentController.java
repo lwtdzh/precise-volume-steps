@@ -45,6 +45,7 @@ final class VolumeAdjustmentController {
     private final ShizukuBinderDiscovery shizukuDiscovery;
     private final ShizukuKeyBridge rawKeys;
     private final RootVolumeBridge root;
+    private final SetupShellBridge privilegedSetup;
     private final RawVolumePress rawPress = new RawVolumePress();
     private final CompatibilityVolumeBridge compatibility;
     private final int[] observed = new int[12];
@@ -76,6 +77,8 @@ final class VolumeAdjustmentController {
     private String lastSource = "none";
     private boolean closed;
     private boolean receiverRegistered;
+    private boolean privilegedAccessibilityRequested;
+    private String privilegedAccessibilityState = "idle";
 
     private final BroadcastReceiver volumeReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context ignored, Intent intent) {
@@ -112,6 +115,7 @@ final class VolumeAdjustmentController {
                 shizuku.connect();
                 rawKeys.connect();
             }
+            ensurePrivilegedAccessibility();
             handler.postDelayed(this, POLL_MS);
         }
     };
@@ -120,6 +124,8 @@ final class VolumeAdjustmentController {
                 if ("steps".equals(key) || "media_only".equals(key)
                         || "operating_mode".equals(key) || "shizuku_enabled".equals(key)) {
                     handler.post(() -> {
+                        privilegedAccessibilityRequested = false;
+                        privilegedAccessibilityState = "mode changed";
                         cancelPending();
                         captureBaseline();
                         connectShizuku();
@@ -152,6 +158,7 @@ final class VolumeAdjustmentController {
                         onExplicitKey("root:" + node, code, value, time, time,
                                 false, maskedOrigin),
                 VolumeKeeperService::refreshNotification);
+        privilegedSetup = new SetupShellBridge(context);
         root.connect();
         captureBaseline();
         IntentFilter filter = new IntentFilter("android.media.VOLUME_CHANGED_ACTION");
@@ -179,13 +186,13 @@ final class VolumeAdjustmentController {
         if (code != KeyEvent.KEYCODE_VOLUME_UP && code != KeyEvent.KEYCODE_VOLUME_DOWN) {
             return;
         }
-        // Raw input owns noninteractive presses when available. The companion
-        // observes built-in keys only; external keys still need accessibility.
+        // Selected privileged readers own every screen state. Assistant input
+        // remains locked/off only and observes built-in keys, so external keys
+        // still use accessibility in that mode.
         android.view.InputDevice device = event.getDevice();
         boolean external = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
                 && device != null && device.isExternal();
-        if (nonInteractive() && (privilegedInputReady()
-                || (companionInputOwnsKeys() && !external))) return;
+        if (privilegedInputOwnsKeys() || (companionInputOwnsKeys() && !external)) return;
         lastKeyTime = SystemClock.uptimeMillis();
         lastKeyAction = event.getAction() == KeyEvent.ACTION_DOWN ? "down"
                 : event.getAction() == KeyEvent.ACTION_UP ? "up" : "other";
@@ -246,7 +253,10 @@ final class VolumeAdjustmentController {
         }
         boolean sourceReady = companionInput ? compatibility.inputReady()
                 : node.startsWith("root:") ? root.inputReady() : rawKeys.ready();
-        boolean eligible = nonInteractive() && sourceReady
+        OperatingMode sourceMode = companionInput ? OperatingMode.ASSISTANT
+                : node.startsWith("root:") ? OperatingMode.ROOT : OperatingMode.SHIZUKU;
+        boolean eligible = RawInputOwnership.owns(
+                VolumeStepSettings.mode(context), sourceMode, sourceReady, nonInteractive())
                 && audio.getMode() == AudioManager.MODE_NORMAL;
         if (value == 1) {
             if (!rawPress.down(node, code, observedAt, now, eligible)) {
@@ -414,8 +424,8 @@ final class VolumeAdjustmentController {
     }
 
     private boolean applyRawAtRelease(Gesture active) {
-        if (!explicitInputReady(active) || !nonInteractive()
-                || audio.getMode() != AudioManager.MODE_NORMAL || active.releaseSnapshot == null) {
+        if (!explicitInputReady(active) || audio.getMode() != AudioManager.MODE_NORMAL
+                || active.releaseSnapshot == null) {
             return false;
         }
         boolean interactive = context.getSystemService(PowerManager.class).isInteractive();
@@ -430,11 +440,12 @@ final class VolumeAdjustmentController {
                     true, true, true, active.nativeStepMasked, initial, current, active.lastDirection);
             // A matched raw release is sufficient for suppressed media-only keys.
             // In all-stream mode require an observed transition to identify the stream.
-            boolean litRelease = RawCorrectionTiming.shouldApplyOnLitKeyguard(
-                    interactive, locked, active.released, initial, current, active.lastDirection)
+            boolean interactiveRelease = RawCorrectionTiming.shouldApplyOnInteractiveScreen(
+                    interactive, locked || active.mode != OperatingMode.ASSISTANT,
+                    active.released, initial, current, active.lastDirection)
                     && (current != initial || stream == AudioManager.STREAM_MUSIC
                     && VolumeStepSettings.isMediaOnly(context));
-            if (!bluetooth && !litRelease) {
+            if (!bluetooth && !interactiveRelease) {
                 continue;
             }
             active.stream = stream;
@@ -447,7 +458,10 @@ final class VolumeAdjustmentController {
                     VolumeStepSettings.steps(context), active.directions);
             plannedGesture = active;
             gesture = null;
-            record((litRelease ? "raw lit keyguard" : "raw Bluetooth playback")
+            String path = interactiveRelease
+                    ? locked ? "raw lit keyguard" : "raw privileged screen-on"
+                    : "raw Bluetooth playback";
+            record(path
                     + " correction at release stream=" + stream
                     + " native=" + active.releaseSnapshot[stream]
                     + " target=" + plannedSteps.target());
@@ -807,12 +821,22 @@ final class VolumeAdjustmentController {
                 : active.mode == OperatingMode.ROOT ? root.inputReady() : rawKeys.ready());
     }
 
-    private boolean privilegedInputReady() {
-        return root.inputReady() || rawKeys.ready();
+    private boolean privilegedInputOwnsKeys() {
+        OperatingMode mode = VolumeStepSettings.mode(context);
+        if (mode == OperatingMode.ROOT) {
+            return RawInputOwnership.owns(mode, OperatingMode.ROOT,
+                    root.inputReady(), nonInteractive());
+        }
+        if (mode == OperatingMode.SHIZUKU) {
+            return RawInputOwnership.owns(mode, OperatingMode.SHIZUKU,
+                    rawKeys.ready(), nonInteractive());
+        }
+        return false;
     }
 
     private boolean companionInputOwnsKeys() {
-        return compatibility.inputReady() && nonInteractive();
+        return RawInputOwnership.owns(VolumeStepSettings.mode(context),
+                OperatingMode.ASSISTANT, compatibility.inputReady(), nonInteractive());
     }
 
     private boolean ordinaryIdleFallbackEligible() {
@@ -970,9 +994,12 @@ final class VolumeAdjustmentController {
                 long now = SystemClock.uptimeMillis();
                 if (RawCorrectionTiming.shouldHoldConfirmation(
                         now, active.stabilizeUntil, gesture != null)) {
-                    if (!active.readbackShown
-                            && context.getSystemService(PowerManager.class).isInteractive()
-                            && context.getSystemService(KeyguardManager.class).isKeyguardLocked()) {
+                    boolean interactive = context.getSystemService(PowerManager.class).isInteractive();
+                    boolean privilegedRaw = active.gesture != null && active.gesture.raw
+                            && active.gesture.mode != OperatingMode.ASSISTANT;
+                    if (!active.readbackShown && interactive
+                            && (context.getSystemService(KeyguardManager.class).isKeyguardLocked()
+                            || privilegedRaw)) {
                         // This is an actual readback, while the existing late-write
                         // guard remains pending. Never render a requested target alone.
                         overlay.showSettlingReadback(active.stream, current,
@@ -1105,10 +1132,52 @@ final class VolumeAdjustmentController {
     }
 
     void accessibilityChanged() {
-        if (!FineVolumeAccessibilityService.isConnected()) {
+        if (!FineVolumeAccessibilityService.isConnected()
+                && VolumeStepSettings.mode(context) == OperatingMode.ASSISTANT) {
             cancelPending();
         }
         overlay.accessibilityChanged();
+        ensurePrivilegedAccessibility();
+    }
+
+    private void ensurePrivilegedAccessibility() {
+        OperatingMode mode = VolumeStepSettings.mode(context);
+        if (mode == OperatingMode.ASSISTANT) {
+            privilegedAccessibilityRequested = false;
+            privilegedAccessibilityState = "assistant";
+            return;
+        }
+        if (FineVolumeAccessibilityService.isConnected()) {
+            privilegedAccessibilityRequested = false;
+            privilegedAccessibilityState = "connected";
+            return;
+        }
+        if (AccessibilityStatus.isConfigured(context)) {
+            privilegedAccessibilityState = "enabled; waiting for connection";
+            return;
+        }
+        boolean inputReady = mode == OperatingMode.ROOT ? root.inputReady() : rawKeys.ready();
+        if (!PrivilegedAccessibilityRecovery.shouldRequest(
+                mode, false, false, privilegedAccessibilityRequested, inputReady)) return;
+
+        java.util.function.Consumer<String> completed = ignored -> {
+            boolean enabled = AccessibilityStatus.isConfigured(context);
+            privilegedAccessibilityState = enabled ? "enabled; waiting for connection" : "failed";
+            record("privileged accessibility setup " + privilegedAccessibilityState);
+            VolumeKeeperService.refreshNotification();
+        };
+        boolean started;
+        if (mode == OperatingMode.ROOT) {
+            started = root.setupIfReady(completed);
+        } else {
+            privilegedSetup.setup(completed);
+            started = true;
+        }
+        if (started) {
+            privilegedAccessibilityRequested = true;
+            privilegedAccessibilityState = "requesting via " + mode;
+            record("privileged accessibility setup requested mode=" + mode);
+        }
     }
 
     void close() {
@@ -1124,6 +1193,7 @@ final class VolumeAdjustmentController {
         shizukuDiscovery.close();
         rawKeys.close();
         root.close();
+        privilegedSetup.close();
         compatibility.close();
         if (keyWakeLock.isHeld()) keyWakeLock.release();
     }
@@ -1146,6 +1216,13 @@ final class VolumeAdjustmentController {
 
     String rootStatus() { return root.status(); }
     boolean rootInputReady() { return root.inputReady(); }
+    boolean selectedKeyInputReady() {
+        return switch (VolumeStepSettings.mode(context)) {
+            case ASSISTANT -> FineVolumeAccessibilityService.isConnected();
+            case SHIZUKU -> rawKeys.ready();
+            case ROOT -> root.inputReady();
+        };
+    }
 
     void setupRoot(java.util.function.Consumer<String> result) {
         root.authorizeAndSetup(result);
@@ -1175,6 +1252,8 @@ final class VolumeAdjustmentController {
                 + "\nRoot=" + root.diagnostics()
                 + "\nraw volume keys=" + rawKeys.diagnostics()
                 + "\ncompanion=" + compatibility.diagnostics()
+                + "\nprivileged accessibility=" + privilegedAccessibilityState
+                + ", requested=" + privilegedAccessibilityRequested
                 + "\npending correction=" + (pendingCorrection == null ? "none"
                         : pendingCorrection.stream + ":" + pendingCorrection.target)
                 + "\nlast key age ms=" + (lastKeyTime == 0 ? "never" : now - lastKeyTime)

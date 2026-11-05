@@ -390,6 +390,33 @@ belong in test sources, reports or logs. Bluetooth remains connected when it
 was connected before testing. Compare route/range and capture built-in buttons
 separately.
 
+## Privileged unlocked raw input and accessibility recovery (P29)
+
+`tests/privileged_unlocked_hid.py` checks the selected Shizuku or Root reader
+while the phone is actually awake and unlocked. It starts with this app's
+accessibility component removed, then requires privileged setup to merge and
+bind it without removing other services. An external UHID consumer key checks
+actual privileged Binder writes, one configured step, exact reversal and raw
+ownership despite the simultaneous accessibility connection. The fixture
+selects/restores the backend through the same-signed test host, restarts the
+normal app process after instrumentation, and restores native volume and the
+complete preference snapshot.
+
+```sh
+python3 tests/privileged_unlocked_hid.py --serial PHONE_SERIAL \
+  --keys /tmp/pvs-test-hid --preset-dex /tmp/pvs-preset-dex/classes.dex \
+  --backend shizuku --steps 50 --baseline 30 \
+  --output /tmp/pvs-privileged-unlocked
+# Repeat with --backend root after confirming the exact main package is allowed
+# by the Root manager.
+```
+
+The fixture fails rather than unlocking a secure phone. An instrumentation
+process targeting the main package is torn down when instrumentation exits; a
+mode-switch fixture must start the normal main activity before judging
+asynchronous Root or Shizuku readiness. Keep built-in physical buttons,
+external HID and synthetic callbacks as separate evidence.
+
 ## Ordinary helper screen-off checks
 
 Ordinary runs explicitly disable Shizuku. Restore the live keeper/accessibility

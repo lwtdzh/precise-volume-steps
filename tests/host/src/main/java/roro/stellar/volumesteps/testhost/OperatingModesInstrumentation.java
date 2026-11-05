@@ -74,11 +74,13 @@ public final class OperatingModesInstrumentation extends Instrumentation {
             check("overlay permission readback", Settings.canDrawOverlays(target));
             check("battery exemption readback", target.getSystemService(android.os.PowerManager.class)
                     .isIgnoringBatteryOptimizations(target.getPackageName()));
-            String accessibility = Settings.Secure.getString(target.getContentResolver(), "enabled_accessibility_services");
+            String accessibility = Settings.Secure.getString(
+                    target.getContentResolver(), "enabled_accessibility_services");
             check("own accessibility setting readback", accessibility != null
                     && accessibility.contains("FineVolumeAccessibilityService"));
             Class<?> setup = loader.loadClass(target.getPackageName() + ".PrivilegedSetup");
-            Method merge = setup.getDeclaredMethod("mergeAccessibility", String.class); merge.setAccessible(true);
+            Method merge = setup.getDeclaredMethod("mergeAccessibility", String.class);
+            merge.setAccessible(true);
             String other = "org.example.reader/.Reader:org.example.switch/.Switch";
             String merged = (String) merge.invoke(null, other);
             check("permission merge preserves both other services", merged.startsWith(other + ":"));
