@@ -16,6 +16,7 @@ import android.os.PowerManager;
 import android.os.SystemClock;
 import android.util.Log;
 import android.view.KeyEvent;
+import android.view.ViewConfiguration;
 import java.util.ArrayList;
 import java.util.Arrays;
 
@@ -47,6 +48,8 @@ final class VolumeAdjustmentController {
     private final RootVolumeBridge root;
     private final SetupShellBridge privilegedSetup;
     private final RawVolumePress rawPress = new RawVolumePress();
+    private final int keyRepeatTimeoutMs = ViewConfiguration.getKeyRepeatTimeout();
+    private final int keyRepeatDelayMs = ViewConfiguration.getKeyRepeatDelay();
     private final CompatibilityVolumeBridge compatibility;
     private final int[] observed = new int[12];
     private final int[] previousObserved = new int[12];
@@ -61,6 +64,7 @@ final class VolumeAdjustmentController {
     private Gesture gesture;
     private Correction pendingCorrection;
     private final Runnable detectKey = this::detectKeyAdjustment;
+    private final Runnable advanceHeldKey = this::advancePrivilegedHold;
     private final Runnable confirmWrite = this::confirmCorrection;
     private final Runnable watchBluetoothStep = () -> {
         Gesture active = gesture;
@@ -186,9 +190,8 @@ final class VolumeAdjustmentController {
         if (code != KeyEvent.KEYCODE_VOLUME_UP && code != KeyEvent.KEYCODE_VOLUME_DOWN) {
             return;
         }
-        // Selected privileged readers own every screen state. Assistant input
-        // remains locked/off only and observes built-in keys, so external keys
-        // still use accessibility in that mode.
+        // 特权读键覆盖亮屏和息屏；助手读键只负责锁屏、息屏的内置按键。
+        // 保留特权模式在无障碍服务被系统关闭时的独立运行能力。
         android.view.InputDevice device = event.getDevice();
         boolean external = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
                 && device != null && device.isExternal();
@@ -247,7 +250,8 @@ final class VolumeAdjustmentController {
                 // release may be waiting for native writes to settle when waking.
                 if (gesture != null && gesture.raw && !gesture.released) cancelPending();
             } else if (value == 0) {
-                rawPress.up(node, code, observedAt, now);
+                rawPress.up(node, code, observedAt, now,
+                        keyRepeatTimeoutMs, keyRepeatDelayMs);
             }
             return;
         }
@@ -274,6 +278,12 @@ final class VolumeAdjustmentController {
                 record("privileged input masked native Bluetooth step at " + maskedOrigin);
             }
             Gesture held = gesture;
+            handler.removeCallbacks(advanceHeldKey);
+            if (!companionInput && held != null) {
+                handler.postDelayed(advanceHeldKey,
+                        Math.max(1, keyRepeatTimeoutMs
+                                - (SystemClock.uptimeMillis() - observedAt)));
+            }
             handler.postDelayed(() -> {
                 if (gesture == held && held != null && held.raw && !held.released) {
                     record("raw press expired without release");
@@ -281,19 +291,32 @@ final class VolumeAdjustmentController {
                 }
             }, 10000);
         } else if (value == 2) {
-            rawPress.repeat(node, code);
+            if (eligible && now - observedAt >= 0 && now - observedAt <= 250) {
+                rawPress.repeat(node, code);
+                advancePrivilegedHold();
+            }
         } else if (value == 0) {
-            int count = rawPress.up(node, code, observedAt, now);
+            int count = rawPress.up(node, code, observedAt, now,
+                    keyRepeatTimeoutMs, keyRepeatDelayMs);
             Gesture active = gesture;
             if (active == null || !active.raw) return;
             if (active.released) return; // A duplicate/unmatched up cannot retire an accepted release.
             if (count == 0 || !eligible) { cancelPending(); return; }
             int direction = code == RawVolumeKeyParser.UP ? 1 : -1;
-            for (int n = 1; n < count; n++) active.directions.add(direction);
+            // Held updates have already counted part of this same press.
+            // A delayed hardware REPEAT must never shrink the accepted count.
+            for (int n = active.rawCount; n < count; n++) active.directions.add(direction);
+            count = Math.max(count, active.rawCount);
             active.released = true;
+            handler.removeCallbacks(advanceHeldKey);
             handler.removeCallbacks(watchBluetoothStep);
             active.lastPress = now;
             active.releaseSnapshot = snapshot();
+            if (active.nativeHold) {
+                active.lastNativeValue = active.releaseSnapshot[active.stream];
+                active.lastNativeChange = now;
+                active.correctionStabilizeUntil = now + RAW_SETTLE_MS;
+            }
             lastKeyTime = now;
             lastKeyAction = "raw up";
             holdKeyWakeLock();
@@ -356,7 +379,14 @@ final class VolumeAdjustmentController {
         gesture.mode = VolumeStepSettings.mode(context);
         gesture.companionInput = companionInput;
         gesture.released = !raw;
-        if (raw) gesture.releaseSnapshot = null;
+        if (raw) {
+            gesture.releaseSnapshot = null;
+            gesture.rawCount = 1;
+            gesture.privilegedHold = false;
+            gesture.nativeHold = false;
+            gesture.lastHoldWrite = -1;
+            gesture.releaseHandled = false;
+        }
         gesture.lastDirection = direction;
         gesture.directions.add(direction);
         gesture.lastPress = SystemClock.uptimeMillis();
@@ -368,10 +398,72 @@ final class VolumeAdjustmentController {
         }
     }
 
+    /** Privileged readers also own awake keys, where the user expects a live hold. */
+    private void advancePrivilegedHold() {
+        handler.removeCallbacks(advanceHeldKey);
+        Gesture active = gesture;
+        if (closed || active == null || !active.raw || active.released || active.companionInput
+                || !VolumeStepSettings.isEnabled(context) || !explicitInputReady(active)
+                || audio.getMode() != AudioManager.MODE_NORMAL) return;
+        int count = rawPress.heldCount(SystemClock.uptimeMillis(),
+                keyRepeatTimeoutMs, keyRepeatDelayMs);
+        if (count == 0) return;
+        if (count > active.rawCount) {
+            int stream = active.stream;
+            if (stream < 0 && VolumeStepSettings.isMediaOnly(context)) stream = AudioManager.STREAM_MUSIC;
+            if (stream >= 0 && inScope(stream)) {
+                for (int n = active.rawCount; n < count; n++)
+                    active.directions.add(active.lastDirection);
+                active.rawCount = count;
+                active.stream = stream;
+                active.privilegedHold = true;
+                active.maskPending = false;
+                handler.removeCallbacks(watchBluetoothStep);
+                overlay.holdUpdates();
+                holdKeyWakeLock();
+                plannedSteps = active.paths[stream].plan(active.initial[stream],
+                        audio.getStreamMinVolume(stream), audio.getStreamMaxVolume(stream),
+                        VolumeStepSettings.steps(context), active.directions);
+                plannedGesture = active;
+                int current = audio.getStreamVolume(stream);
+                if (current != active.initial[stream]
+                        && Integer.signum(current - active.initial[stream]) == active.lastDirection
+                        && current != active.lastHoldWrite
+                        && (pendingCorrection == null || current != pendingCorrection.target)) {
+                    active.nativeHold = true;
+                }
+                if (active.nativeHold) {
+                    // AudioService may queue a setStreamVolume after its
+                    // expected-current check. Once native repeats are active,
+                    // avoid interleaving slower absolute writes with them.
+                    if (pendingCorrection != null && pendingCorrection.gesture == active) {
+                        shizuku.invalidate();
+                        root.invalidate();
+                        handler.removeCallbacks(confirmWrite);
+                        pendingCorrection = null;
+                    }
+                    plannedSteps = null;
+                    plannedGesture = null;
+                    record("raw held native progress presses=" + count
+                            + " stream=" + stream + " value=" + current);
+                    handler.postDelayed(advanceHeldKey, Math.max(1, keyRepeatDelayMs));
+                    return;
+                }
+                record("raw held correction presses=" + count + " stream=" + stream
+                        + " target=" + plannedSteps.target());
+                // Retain the held gesture and its original rounding path while
+                // the bounded, expected-current backend write is acknowledged.
+                apply(stream, plannedSteps.target());
+            }
+        }
+        handler.postDelayed(advanceHeldKey, Math.max(1, keyRepeatDelayMs));
+    }
+
     private void maskRawBluetoothNativeStep(Gesture active) {
         handler.removeCallbacks(watchBluetoothStep);
         int stream = AudioManager.STREAM_MUSIC;
-        if (closed || active != gesture || active.released || active.maskPending || active.maskFailed
+        if (closed || active != gesture || active.released || active.privilegedHold
+                || active.maskPending || active.maskFailed
                 || !explicitInputReady(active) || !nonInteractive()
                 || audio.getMode() != AudioManager.MODE_NORMAL || !audio.isMusicActive()
                 || !isWirelessMediaRoute() || !inScope(stream)
@@ -424,6 +516,7 @@ final class VolumeAdjustmentController {
     }
 
     private boolean applyRawAtRelease(Gesture active) {
+        if (active.nativeHold) return false;
         if (!explicitInputReady(active) || audio.getMode() != AudioManager.MODE_NORMAL
                 || active.releaseSnapshot == null) {
             return false;
@@ -580,7 +673,7 @@ final class VolumeAdjustmentController {
         }
         long now = SystemClock.uptimeMillis();
         long quiet = now - active.lastPress;
-        if (active.ordinaryScreenOff && (quiet < RAW_SETTLE_MS
+        if ((active.ordinaryScreenOff || active.nativeHold) && (quiet < RAW_SETTLE_MS
                 || active.stream >= 0
                 && now - active.lastNativeChange < RAW_SETTLE_MS)) {
             // Physical Vivo wake keys can keep issuing native coarse writes
@@ -638,8 +731,15 @@ final class VolumeAdjustmentController {
             lastVolumeTime = SystemClock.uptimeMillis();
             lastSource = source;
             record(source + " stream=" + stream + " " + previous + " -> " + current);
+            if (pendingCorrection != null && pendingCorrection.stream == stream)
+                observeCorrectionReadback(pendingCorrection, current);
             if (gesture != null && gesture.raw && !gesture.released) {
                 maskRawBluetoothNativeStep(gesture);
+            }
+            if (gesture != null && gesture.nativeHold && gesture.stream == stream
+                    && gesture.lastNativeValue != current) {
+                gesture.lastNativeValue = current;
+                gesture.lastNativeChange = SystemClock.uptimeMillis();
             }
             if (gesture != null && gesture.stream < 0
                     && current != gesture.initial[stream]
@@ -873,6 +973,8 @@ final class VolumeAdjustmentController {
             Correction correction = new Correction(stream, target, SystemClock.uptimeMillis());
             correction.steps = plannedSteps;
             correction.gesture = plannedGesture;
+            preserveNativeHoldProgress(correction, current);
+            target = correction.target;
             if (plannedGesture != null) {
                 correction.stabilizeUntil = plannedGesture.correctionStabilizeUntil;
             }
@@ -896,23 +998,35 @@ final class VolumeAdjustmentController {
         if (closed || pendingCorrection != correction) {
             return;
         }
+        if (!correctionStillAllowed(correction)) {
+            cancelPending();
+            return;
+        }
+        preserveNativeHoldProgress(correction, current);
+        if (current == correction.target) {
+            confirmCorrection();
+            return;
+        }
+        if (correction.gesture != null && correction.gesture.privilegedHold
+                && !correction.gesture.released)
+            correction.gesture.lastHoldWrite = correction.target;
         if (root.ready()) {
             record("Root key write stream=" + correction.stream + " target=" + correction.target);
-            root.adjust(correction.stream, correction.target, current, correction.requestedAt + 500,
+            root.adjust(correction.stream, correction.target, current, correction.expiresAt,
                     result -> handleBackendResult("Root", correction, result, attempt));
             handler.postDelayed(confirmWrite, DETECT_MS);
             return;
         }
         if (shizuku.ready()) {
             record("Shizuku key write stream=" + correction.stream + " target=" + correction.target);
-            shizuku.adjust(correction.stream, correction.target, current, correction.requestedAt + 500,
+            shizuku.adjust(correction.stream, correction.target, current, correction.expiresAt,
                     result -> handleBackendResult("Shizuku", correction, result, attempt));
             handler.postDelayed(confirmWrite, DETECT_MS);
             return;
         }
         if (VolumeStepSettings.mode(context) == OperatingMode.ASSISTANT && compatibility.ready()) {
             record("companion key write stream=" + correction.stream + " target=" + correction.target);
-            compatibility.adjust(correction.stream, correction.target, current, correction.requestedAt + 500,
+            compatibility.adjust(correction.stream, correction.target, current, correction.expiresAt,
                     result -> handleBackendResult("companion", correction, result, attempt));
             handler.postDelayed(confirmWrite, DETECT_MS);
             return;
@@ -953,6 +1067,7 @@ final class VolumeAdjustmentController {
         if (result == -1) {
             try {
                 int latest = audio.getStreamVolume(correction.stream);
+                preserveNativeHoldProgress(correction, latest);
                 if (latest == correction.target) {
                     confirmCorrection();
                     return;
@@ -961,6 +1076,16 @@ final class VolumeAdjustmentController {
                     record(backend + " rejected stale expected value; retry current="
                             + latest + " target=" + correction.target);
                     dispatchCorrection(correction, latest, attempt + 1);
+                    return;
+                }
+                if (correction.stabilizeUntil > 0 && gesture == null
+                        && SystemClock.uptimeMillis() < correction.requestedAt + WRITE_TIMEOUT_MS
+                        && correctionStillAllowed(correction)) {
+                    // Two early expected-current races can occur before the
+                    // native queue becomes quiet. Retain observation for the
+                    // existing single settling retry instead of retiring it.
+                    record(backend + " expected value still changing; waiting for settling");
+                    confirmCorrection();
                     return;
                 }
             } catch (RuntimeException exception) {
@@ -973,7 +1098,7 @@ final class VolumeAdjustmentController {
 
     private boolean canRetryRejectedCorrection(Correction correction, int current, int attempt) {
         if (attempt >= 1 || current == correction.target
-                || SystemClock.uptimeMillis() > correction.requestedAt + 500
+                || SystemClock.uptimeMillis() > correction.expiresAt
                 || correction.gesture == null) {
             return false;
         }
@@ -982,14 +1107,55 @@ final class VolumeAdjustmentController {
         return direction != 0 && correction.gesture.directions.contains(direction);
     }
 
+    private void observeCorrectionReadback(Correction correction, int current) {
+        preserveNativeHoldProgress(correction, current);
+        if (current == correction.lastReadback) return;
+        correction.lastReadback = current;
+        // Several native writes can outlive release + 300 ms. Wait for the
+        // actual stream to become quiet before the single settling retry, and
+        // keep observing its acknowledgement within the original total timeout.
+        correction.stabilizeUntil = RawCorrectionTiming.quietUntil(
+                SystemClock.uptimeMillis(), correction.stabilizeUntil,
+                correction.requestedAt + WRITE_TIMEOUT_MS, RAW_SETTLE_MS);
+    }
+
+    private void preserveNativeHoldProgress(Correction correction, int current) {
+        Gesture active = correction.gesture;
+        if (active == null || !active.raw || active.companionInput
+                || !active.privilegedHold || correction.steps == null) return;
+        int direction = active.lastDirection;
+        int added = correction.steps.advancePast(current, direction);
+        if (added == 0) return;
+        // Native repeats can be larger/faster than configured steps. Account
+        // for that progress separately from rawCount, retaining the anchored
+        // rounding path for later ticks, release and exact reversal.
+        for (int n = 0; n < added; n++) active.directions.add(direction);
+        correction.target = correction.steps.target();
+        record("native hold progressed stream=" + correction.stream
+                + " current=" + current + " target=" + correction.target
+                + " additional steps=" + added);
+    }
+
+    private boolean correctionStillAllowed(Correction correction) {
+        return VolumeStepSettings.isEnabled(context) && inScope(correction.stream)
+                && (correction.gesture == null || !correction.gesture.raw
+                || explicitInputReady(correction.gesture)
+                && audio.getMode() == AudioManager.MODE_NORMAL);
+    }
+
     private void confirmCorrection() {
         handler.removeCallbacks(confirmWrite);
         Correction active = pendingCorrection;
         if (active == null || closed) {
             return;
         }
+        if (!correctionStillAllowed(active)) {
+            cancelPending();
+            return;
+        }
         try {
             int current = audio.getStreamVolume(active.stream);
+            observeCorrectionReadback(active, current);
             if (current == active.target) {
                 long now = SystemClock.uptimeMillis();
                 if (RawCorrectionTiming.shouldHoldConfirmation(
@@ -1038,7 +1204,7 @@ final class VolumeAdjustmentController {
                     now, active.stabilizeUntil, active.stabilizationRetried,
                     gesture != null, origin, current, active.target, matchingDirection)) {
                 active.stabilizationRetried = true;
-                active.stabilizeUntil = 0;
+                active.expiresAt = Math.min(now + 500, active.requestedAt + WRITE_TIMEOUT_MS);
                 record("late native write after early correction stream=" + active.stream
                         + " value=" + current + " target=" + active.target);
                 dispatchCorrection(active, current, 0);
@@ -1076,6 +1242,11 @@ final class VolumeAdjustmentController {
         // A newer key can already be changing the native volume. Its result
         // will replace this one; keep the previous display until it resolves.
         if (gesture != null) {
+            if (gesture.privilegedHold && gesture.stream == stream
+                    && state == VolumeOverlayController.CorrectionState.CONFIRMED
+                    && context.getSystemService(PowerManager.class).isInteractive()) {
+                overlay.showSettlingReadback(stream, current, audio.getStreamMaxVolume(stream));
+            }
             return;
         }
         overlay.releaseUpdates();
@@ -1126,6 +1297,7 @@ final class VolumeAdjustmentController {
         Arrays.fill(previousHistories, null);
         pendingCorrection = null;
         handler.removeCallbacks(detectKey);
+        handler.removeCallbacks(advanceHeldKey);
         handler.removeCallbacks(confirmWrite);
         handler.removeCallbacks(watchBluetoothStep);
         overlay.dismiss();
@@ -1252,6 +1424,8 @@ final class VolumeAdjustmentController {
                 + "\nRoot=" + root.diagnostics()
                 + "\nraw volume keys=" + rawKeys.diagnostics()
                 + "\ncompanion=" + compatibility.diagnostics()
+                + "\nkey repeat timeout/delay ms=" + keyRepeatTimeoutMs
+                + "/" + keyRepeatDelayMs
                 + "\nprivileged accessibility=" + privilegedAccessibilityState
                 + ", requested=" + privilegedAccessibilityRequested
                 + "\npending correction=" + (pendingCorrection == null ? "none"
@@ -1291,6 +1465,10 @@ final class VolumeAdjustmentController {
         boolean ordinaryScreenOff;
         boolean ordinaryIdle;
         boolean released;
+        int rawCount = 1;
+        boolean privilegedHold;
+        boolean nativeHold;
+        int lastHoldWrite = -1;
         int lastDirection;
         int[] releaseSnapshot;
         long correctionStabilizeUntil;
@@ -1309,17 +1487,20 @@ final class VolumeAdjustmentController {
 
     private static final class Correction {
         final int stream;
-        final int target;
+        int target;
         final long requestedAt;
         VolumeStepHistory.Plan steps;
         Gesture gesture;
         long stabilizeUntil;
+        long expiresAt;
+        int lastReadback = -1;
         boolean stabilizationRetried;
         boolean readbackShown;
         Correction(int stream, int target, long requestedAt) {
             this.stream = stream;
             this.target = target;
             this.requestedAt = requestedAt;
+            this.expiresAt = requestedAt + 500;
         }
     }
 }

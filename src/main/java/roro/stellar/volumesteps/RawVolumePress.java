@@ -1,6 +1,6 @@
 package roro.stellar.volumesteps;
 
-/** Release authorizes an off-screen press; power chords and stale input cancel it. */
+/** Tracks one fresh physical press; power chords and stale input cancel it. */
 final class RawVolumePress {
     private String node;
     private int code;
@@ -32,7 +32,13 @@ final class RawVolumePress {
         if (device.equals(node) && key == code) repeats++;
     }
 
-    int up(String device, int key, long time, long now) {
+    int heldCount(long now, int repeatTimeoutMs, int repeatDelayMs) {
+        return node == null || canceled || power ? 0
+                : count(now - downAt, repeatTimeoutMs, repeatDelayMs);
+    }
+
+    int up(String device, int key, long time, long now,
+           int repeatTimeoutMs, int repeatDelayMs) {
         if (key == RawVolumeKeyParser.POWER) {
             power = false;
             return 0;
@@ -40,11 +46,18 @@ final class RawVolumePress {
         if (!device.equals(node) || key != code) return 0;
         long duration = time - downAt;
         int count = canceled || now - time < 0 || now - time > 250
-                || duration < 0 || duration > 10000 ? 0
-                : 1 + (repeats > 0 ? repeats
-                        : duration < 500 ? 0 : 1 + (int) ((duration - 500) / 100));
+                ? 0 : count(duration, repeatTimeoutMs, repeatDelayMs);
         node = null;
-        return Math.min(100, count);
+        return count;
+    }
+
+    private int count(long duration, int repeatTimeoutMs, int repeatDelayMs) {
+        if (duration < 0 || duration > 10000) return 0;
+        int timeout = Math.max(0, repeatTimeoutMs);
+        int delay = Math.max(1, repeatDelayMs);
+        int estimatedRepeats = duration < timeout
+                ? 0 : 1 + (int) ((duration - timeout) / delay);
+        return Math.min(100, 1 + (repeats > 0 ? repeats : estimatedRepeats));
     }
 
     void cancel() { node = null; canceled = true; }

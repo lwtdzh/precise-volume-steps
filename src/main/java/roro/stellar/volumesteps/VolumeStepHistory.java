@@ -54,6 +54,19 @@ final class VolumeStepHistory {
             return targetAt(cursor);
         }
 
+        /** Keep a held key on this rounding path when native repeats ran ahead. */
+        int advancePast(int current, int direction) {
+            int added = 0;
+            direction = Integer.signum(direction);
+            while (direction != 0 && direction * (current - target()) > 0) {
+                int before = target();
+                move(direction);
+                if (target() == before) break;
+                added++;
+            }
+            return added;
+        }
+
         private int targetAt(int position) {
             if (max <= min) return origin;
             int intervals = Math.max(1, Math.min(steps, max - min));

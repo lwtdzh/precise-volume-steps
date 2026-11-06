@@ -42,7 +42,7 @@ def main():
         run = json.loads(path.read_text())
         if run.get("apk_sha256") != digest:
             raise SystemExit(f"APK hash missing or different in {path}; do not merge this evidence")
-        tests = run.get("results", [])
+        tests = run.get("results", run.get("checks", []))
         passed = sum(t.get("pass") is True for t in tests)
         success = bool(tests) and passed == len(tests)
         success = success and run.get("success") is True and not run.get("errors")

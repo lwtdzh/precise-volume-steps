@@ -22,7 +22,7 @@ Neither fixture code nor reports may contain a private unlock credential.
 | R05 | Make an opposite-direction external change or fail a native read. Do not manufacture a pre-key value from an unrelated sample. | `oppositeChangeAndFailedReadDoNotInventBaseline` units |
 | R06 | Send unmatched release, wrong-node release, duplicate release or raw callback older than 250 ms. None may authorize an extra write. | `RawVolumeKeyTest` freshness/matching units |
 | R07 | Hold volume up and down together, or press power on a separate dedicated node while volume is held. Cancel the raw gesture and preserve system chord behavior. | Raw press/chord units; physical screenshot behavior still needs P14 |
-| R08 | Hold about 700 ms without repeat events, then release: four configured steps. With explicit repeats, count each once. An opposite hold restores the origin; a hold beyond 10 s cannot authorize a write. | Short holds/reversal in final HID; repeat and overlong-hold bounds in units |
+| R08 | Hold about 700 ms without raw repeat events, then release: count from the device's Android key-repeat timeout/delay. With explicit repeats, count each once. An opposite hold restores the origin; a hold beyond 10 s cannot authorize a write. | Historical external HID used the earlier fixed four-step estimate; device-timed fallback and repeat/overlong-hold bounds have unit coverage, while updated HID reruns remain required |
 | R09 | Send `---+--+` without per-key settling; end three steps below origin. Send `+++` to restore exactly. Native dispatch can arrive after release: retain the 300 ms settling wait and inspect late writes, not only callback freshness. | Final idle/playback HID bursts; earlier code-25 late native 112→122 failure retained |
 | R10 | An older write confirms while a new gesture is pending on the uneven grid. Preserve the gesture's copied history. From origin 74, confirmed 79 and two further ups target 83; two downs return 74. | `VolumeStepHistoryTest.pendingGestureKeepsItsRoundedPathWhenAnOlderWriteConfirms` |
 | R11 | While truly asleep, apply an external preset to origin−1 without a key. Leave it unchanged, keep the panel hidden, and verify the CPU key wake lock expires after key work. | Final idle/playback HID passive, power and wake-lock assertions |
@@ -55,6 +55,28 @@ The discovered cancellation explains one ordering, not every missing-key report.
 Use the installed test host and observer hashes when judging fixture identity.
 The final two HID runs each have 83 assertions, including playback continuity.
 Earlier passing counts with fewer assertions are separate historical evidence.
+
+## 连按和长按再次报告，2026-11-06
+
+| ID | Reproduce and expected result | Existing evidence |
+|---|---|---|
+| R33 | Shizuku/Root，亮屏无障碍开/关，长按 0.7/1.4/3 秒及反向长按；音量按住期间持续变化，松开后不回弹。 | 前版“10 次通过、Root 已修好”已撤回。当前50阶真实播放亮屏非触底结果见Shizuku R49、Root R50；完整组合仍待物理记录。 |
+| R34 | 助手关屏立即连续 DOWN/UP，再开屏；比较等待后再按，记录 helper 首次采样及每键 delivery。 | 前版将 `released` 重置归因于最近提交不成立；完整 UP 会重新排检测。启动采样漏键仍是候选，未有最终真机证据。 |
+| R41 | 注册期间持续采样的助手，关屏后立即五次真实短按，记录每个内置 PMIC edge、每次 dump 起止、Binder receipt/main delivery 与屏幕切换。 | `7ae4dd161a...`/`468e635392...` 实际五次完整按键，105→95，预期90；helper 合成7/7不能覆盖此失败。不要放宽 freshness 或推算丢失的次数。见 incident-log。 |
+| R42 | 保持用户相机快捷原值，助手分别在无播放和用户实际播放时息屏五次内置短按；保留相机实际启动、完整原生键、dump窗口、callback排队与播放所有者。 | 时间诊断候选 idle 实际95→86，预期80；Vivo 页面说明快捷仅在无音乐时可用。idle 开相机属于系统行为候选，不以关闭快捷换取通过；实际播放后续见R43/R46。 |
+| R43 | 相机快捷保持原值，用户实际播放器持续拥有 `USAGE_MEDIA`，助手息屏五次短按；分别记录生产helper/app路径与独立PMIC旁路。 | 两次生产路径82→67、67→52均精确，播放持续started；两个旁路recorder均在操作前到时，故只记应用路径通过，独立PMIC同步证据仍待补。 |
+| R44 | 同一真实播放下切换Shizuku，内置音量减长按约1.32秒，松手后等待再开屏；保留raw repeat、逐次readback和settled值。 | 52按16步降到4，最终确认后约1.15秒才按电源，34秒后仍为4；无回升。native旁路recorder操作前到时，证据类别为生产Shizuku raw路径。 |
+| R45 | Root/50阶、真实播放、息屏内置长按，独立PMIC与生产timer/readback同步录制。 | PMIC仅DOWN/UP、持续1.271秒；76→19，423次状态采样播放active，UP后约45秒仍19，reader status0。亮屏native repeat单独待测。 |
+| R46 | 助手/50阶、真实蓝牙媒体播放，相机快捷原值，关屏立即五次内置短按。 | 五组独立PMIC与五组helper callback匹配，82→67，340次状态采样播放active，UP后约42秒仍67；reader status0。仅证明计数与稳定值，trace中的遮蔽瞬态不宣称单调。 |
+| R47 | Shizuku/50阶、真实播放、亮屏未锁内置长按，核对native progression和UP后quiet结算。 | PMIC持续0.928秒，76→0，UP后约47秒仍0；native进度期间未并发旧绝对纠正，reader status0。触底前松手的长按仍需补测。 |
+| R48 | 同R47缩短按住时间，保留UP时及其后的真实readback。 | PMIC持续0.703秒，UP前6、随后系统到0，应用quiet后结算0，无回升；UP后约60秒仍0。文件名nonlimit不代表非触底，非零settled仍待测。 |
+| R49 | Shizuku/50阶、真实播放、亮屏未锁内置长按，保留大于0的settled值，核对UP后系统进度和原路径追加。 | PMIC持续0.670秒，76→16，UP后系统到6，Shizuku沿路径结算4；独立轮询76→46→6→4，UP后约76秒仍4，reader status0，无触底或观测回升。 |
+| R50 | Root/50阶、同一真实播放、亮屏未锁内置长按，核对非触底settled值。 | PMIC持续0.624秒，原生76→16，沿路径总20步仍为16；UP后约113秒仍16，reader status0，724次状态采样播放active，无触底或观测回升。 |
+| R35 | 第一键 DOWN/UP 后，第二键 DOWN 保持 550 ms 不松；不得提前结算第二键。随后明确 repeat/UP，累计三步。 | 新合成助手输入 + 真实 helper IPC/API 33，在 APK `75579a9...fa8722` 上失败：14/15 提前写成 8/15，2/3。撤回 `hadRelease` 后 APK `d3ec851...d3186d`，同 fixture 在 5/10 阶各 27/27（含原 R31/R32）。 |
+
+具体提交和失败修复见 [故障记录](incident-log.md)。特权模式必须保留缺失
+Accessibility 时的全屏读键能力；完成的 release 跨开屏保护与当前仍按住的
+新键分开验证。不能用过去曾松过键的标记授权整组未完成手势。
 
 ## Additional tests to run
 

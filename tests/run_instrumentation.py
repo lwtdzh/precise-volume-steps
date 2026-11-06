@@ -18,6 +18,8 @@ SUITES = {
     "layout": "OverlayStabilityInstrumentation",
     "screen-off": "ScreenOffInstrumentation",
     "released-key-wake": "ReleasedKeyWakeInstrumentation",
+    "helper-startup": "HelperStartupInstrumentation",
+    "privileged-hold": "PrivilegedHoldInstrumentation",
     "modes": "OperatingModesInstrumentation",
     "locked-raw-timing": "LockedRawTimingInstrumentation",
     "shizuku-status": "ShizukuStatusInstrumentation",
@@ -42,18 +44,22 @@ def main():
     parser.add_argument("--apk", type=Path, help="Require installed main to match this APK")
     parser.add_argument("--host-apk", type=Path, help="Require installed host to match this APK")
     parser.add_argument("--steps", type=int)
+    parser.add_argument("--scenario", choices=["settling", "native-hold"],
+                        help="Select settling or live native-step ratios in privileged-hold")
     parser.add_argument("--expected-status", choices=["authorized", "denied", "stopped"],
                         default="authorized")
     parser.add_argument("--expected-uid", type=int, choices=[0, 2000], default=2000,
                         help="Expected root or ADB Shizuku server UID")
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
-    if args.suite in ("frames", "screen-off", "released-key-wake", "modes", "shizuku-status") and not args.serial.startswith("emulator-"):
+    if args.suite in ("frames", "screen-off", "released-key-wake", "helper-startup", "privileged-hold", "modes", "shizuku-status") and not args.serial.startswith("emulator-"):
         parser.error("Rejection/frame and screen-off fixtures are disposable-emulator only")
     if args.steps is not None and not 5 <= args.steps <= 150:
         parser.error("steps must be between 5 and 150")
-    if args.steps is not None and args.suite not in ("backend", "released-key-wake"):
-        parser.error("--steps is supported by the backend and released-key-wake fixtures only")
+    if args.steps is not None and args.suite not in ("backend", "released-key-wake", "privileged-hold"):
+        parser.error("--steps is supported by backend, released-key-wake and privileged-hold only")
+    if args.scenario and args.suite != "privileged-hold":
+        parser.error("--scenario requires privileged-hold")
     output = args.output.resolve()
     if output == ROOT or ROOT in output.parents:
         parser.error("Store device captures outside the repository, for example /tmp/pvs-tests")
@@ -105,16 +111,18 @@ def main():
         (output / (prefix + "-setup-failure.json")).write_text(json.dumps(report, indent=2))
         raise SystemExit("; ".join(mismatches))
     helper_digest = installed_hash("com.vivo.finevolumesteps.helper") if (
-        args.suite in ("locked-raw-timing", "released-key-wake")
+        args.suite in ("locked-raw-timing", "released-key-wake", "helper-startup")
         or args.suite == "backend" and args.backend == "companion") else None
     fixture = ROOT / "tests/host/src/main/java/roro/stellar/volumesteps/testhost" / (
         SUITES[args.suite] + ".java")
     fixture_digest = hashlib.sha256(fixture.read_bytes()).hexdigest()
     command = ["adb", "-s", args.serial, "shell", "am", "instrument", "-w"]
-    if args.suite == "backend":
+    if args.suite in ("backend", "privileged-hold"):
         command += ["-e", "backend", args.backend]
     if args.steps is not None:
         command += ["-e", "steps", str(args.steps)]
+    if args.scenario:
+        command += ["-e", "scenario", args.scenario]
     if args.suite == "shizuku-status":
         command += ["-e", "expected", args.expected_status,
                     "-e", "expected_uid", str(args.expected_uid)]
@@ -138,11 +146,14 @@ def main():
             "apk_sha256": digest, "suite": args.suite,
             "host_apk_sha256": host_digest, "helper_apk_sha256": helper_digest,
             "fixture_sha256": fixture_digest,
-            "backend": args.backend if args.suite == "backend" else None,
+            "backend": args.backend if args.suite in ("backend", "privileged-hold") else None,
             "steps": args.steps,
+            "scenario": args.scenario,
             "expected_status": args.expected_status if args.suite == "shizuku-status" else None,
             "expected_uid": args.expected_uid if args.suite == "shizuku-status" else None,
-            "input": "real Shizuku permission and Activity UI readback; no key input"
+            "input": "synthetic strict EventHub dumps; actual helper monitor and Android power"
+                    if args.suite == "helper-startup"
+                    else "real Shizuku permission and Activity UI readback; no key input"
                     if args.suite == "shizuku-status"
                     else "synthetic controller callbacks; actual Android audio/IPC",
             "results": tests, "success": success, "errors": errors,

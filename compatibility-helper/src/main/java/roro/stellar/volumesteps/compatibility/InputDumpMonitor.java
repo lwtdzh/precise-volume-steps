@@ -2,13 +2,13 @@ package roro.stellar.volumesteps.compatibility;
 
 import android.content.Context;
 import android.content.pm.PackageManager;
-import android.app.KeyguardManager;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
-import android.os.PowerManager;
 import android.os.RemoteException;
 import android.os.SystemClock;
 import java.io.ByteArrayOutputStream;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
@@ -17,7 +17,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
-/** Locked/screen-off InputManager state reader. A listener death stops all work. */
+/** Keeps a physical-key baseline while registered. A listener death stops all work. */
 final class InputDumpMonitor {
     private static final int POLL_MS = 25;
     private static final int MAX_DUMP_BYTES = 2 * 1024 * 1024;
@@ -35,10 +35,21 @@ final class InputDumpMonitor {
     private Map<String, Set<String>> previous;
     private long previousObservedAt;
     private String error;
+    private long sampleCount;
+    private long maximumDumpMs;
+    private long maximumIntervalMs;
+    private final Deque<String> timingTrace = new ArrayDeque<>();
+    private final java.util.function.Supplier<String> fixtureDump;
     private final IBinder.DeathRecipient death = this::listenerDied;
 
     InputDumpMonitor(Context context) {
+        this(context, null);
+    }
+
+    /** Package-private dump source for emulator tests; production always uses InputManager. */
+    InputDumpMonitor(Context context, java.util.function.Supplier<String> fixtureDump) {
         this.context = context;
+        this.fixtureDump = fixtureDump;
     }
 
     boolean available() {
@@ -59,9 +70,7 @@ final class InputDumpMonitor {
                 return false;
             }
             error = null;
-            if (shouldReadInput()) {
-                startLocked();
-            }
+            startLocked();
             return true;
         }
     }
@@ -76,34 +85,25 @@ final class InputDumpMonitor {
 
     void screenChanged(boolean interactive) {
         synchronized (lock) {
-            if (interactive && !prewarm
-                    && !context.getSystemService(KeyguardManager.class).isKeyguardLocked()) {
-                stopLocked();
-            } else if (listener != null) {
-                startLocked();
-            }
+            // Stopping on wake discards the baseline needed by the first key
+            // immediately after the next SCREEN_OFF. Ownership is gated by the
+            // main controller; awake samples do not authorize assistant writes.
+            if (listener != null) startLocked();
         }
     }
 
     void setPrewarm(boolean enabled) {
         synchronized (lock) {
             prewarm = enabled;
-            if (shouldReadInput()) {
-                if (listener != null) startLocked();
-            } else {
-                stopLocked();
-            }
+            // Retain the optional AIDL method for older clients. Registration
+            // now keeps the baseline warm for idle and every playback route.
+            if (listener != null) startLocked();
         }
-    }
-
-    private boolean shouldReadInput() {
-        return prewarm || !context.getSystemService(PowerManager.class).isInteractive()
-                || context.getSystemService(KeyguardManager.class).isKeyguardLocked();
     }
 
     boolean active() {
         synchronized (lock) {
-            return running && listener != null && error == null;
+            return running && previous != null && listener != null && error == null;
         }
     }
 
@@ -111,7 +111,12 @@ final class InputDumpMonitor {
         synchronized (lock) {
             return "available=" + available() + ", listener=" + (listener != null)
                     + ", active=" + running + ", prewarm=" + prewarm
-                    + ", error=" + error;
+                    + ", error=" + error
+                    + ", samples=" + sampleCount + ", maximum dump ms=" + maximumDumpMs
+                    + ", maximum interval ms=" + maximumIntervalMs
+                    + ", last sample age ms=" + (previousObservedAt == 0 ? -1
+                            : SystemClock.uptimeMillis() - previousObservedAt)
+                    + "\ninput timing trace:\n" + String.join("\n", timingTrace);
         }
     }
 
@@ -137,6 +142,10 @@ final class InputDumpMonitor {
         previous = null;
         previousObservedAt = 0;
         reported.clear();
+        sampleCount = 0;
+        maximumDumpMs = 0;
+        maximumIntervalMs = 0;
+        timingTrace.clear();
         loop.execute(() -> readLoop(token));
     }
 
@@ -159,22 +168,31 @@ final class InputDumpMonitor {
 
     private void readLoop(long token) {
         try {
-            IBinder service = inputService();
+            IBinder service = fixtureDump == null ? inputService() : null;
             while (true) {
                 synchronized (lock) {
                     if (!running || closed || listener == null
                             || runGeneration != token) return;
-                    if (!shouldReadInput()) {
-                        stopLocked();
-                        return;
-                    }
                 }
                 long before = SystemClock.uptimeMillis();
-                Map<String, Set<String>> current = InputDumpKeyState.parse(dump(service));
+                Map<String, Set<String>> current = InputDumpKeyState.parse(
+                        fixtureDump == null ? dump(service) : fixtureDump.get());
                 long observedAt = SystemClock.uptimeMillis();
                 synchronized (lock) {
                     if (!running || closed || listener == null
                             || runGeneration != token) return;
+                    long cost = observedAt - before;
+                    long interval = previousObservedAt == 0 ? 0 : observedAt - previousObservedAt;
+                    sampleCount++;
+                    maximumDumpMs = Math.max(maximumDumpMs, cost);
+                    maximumIntervalMs = Math.max(maximumIntervalMs, interval);
+                    // Preserve slow intervals and pressed samples for diagnosis;
+                    // no file writes, extra polling, or reconstructed key edges.
+                    if (interval >= 100 || current.values().stream().anyMatch(keys -> !keys.isEmpty())) {
+                        rememberLocked("sample before=" + before + " after=" + observedAt
+                                + " dump ms=" + cost + " interval ms=" + interval
+                                + " pressed=" + current);
+                    }
                     if (previous == null) {
                         previous = current;
                         previousObservedAt = observedAt;
@@ -223,12 +241,20 @@ final class InputDumpMonitor {
 
     private boolean sendLocked(InputDumpKeyState.Edge edge) {
         try {
+            rememberLocked("edge code=" + edge.code() + " value=" + edge.value()
+                    + " after=" + edge.observedAfter() + " at=" + edge.observedAt()
+                    + " sent=" + SystemClock.uptimeMillis());
             listener.onKey(edge.code(), edge.value(), edge.observedAfter(), edge.observedAt());
             return true;
         } catch (RemoteException exception) {
             error = "listener disconnected";
             return false;
         }
+    }
+
+    private void rememberLocked(String entry) {
+        if (timingTrace.size() == 64) timingTrace.removeFirst();
+        timingTrace.addLast(entry);
     }
 
     private void reportErrorLocked() {

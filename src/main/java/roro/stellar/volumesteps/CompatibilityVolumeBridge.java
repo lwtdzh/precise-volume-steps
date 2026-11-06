@@ -12,7 +12,10 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.RemoteException;
+import android.os.SystemClock;
 import android.net.Uri;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
@@ -46,6 +49,8 @@ final class CompatibilityVolumeBridge {
     private boolean inputPrewarmSupported = true;
     private String error;
     private String inputError;
+    private final Object receiptLock = new Object();
+    private final Deque<String> inputReceipts = new ArrayDeque<>();
     private long retryMs = 1000;
     private final Runnable reconnect = this::connect;
     private final Runnable inputHealth = this::refreshInput;
@@ -54,7 +59,14 @@ final class CompatibilityVolumeBridge {
             new ICompatibilityKeyListener.Stub() {
                 @Override public void onKey(int code, int value,
                                             long observedAfter, long observedAt) {
+                    long receivedAt = SystemClock.uptimeMillis();
+                    rememberReceipt("received code=" + code + " value=" + value
+                            + " after=" + observedAfter + " at=" + observedAt
+                            + " received=" + receivedAt);
                     handler.post(() -> {
+                        rememberReceipt("delivered code=" + code + " value=" + value
+                                + " at=" + observedAt + " received=" + receivedAt
+                                + " delivered=" + SystemClock.uptimeMillis());
                         if (!closed && inputRegistered
                                 && VolumeStepSettings.mode(context) == OperatingMode.ASSISTANT) {
                             keyCallback.onKey(code, value, observedAfter, observedAt);
@@ -333,11 +345,23 @@ final class CompatibilityVolumeBridge {
     }
 
     String diagnostics() {
+        String receipts;
+        synchronized (receiptLock) {
+            receipts = String.join("\n", inputReceipts);
+        }
         return "supported=" + supportedDevice() + ", ready=" + ready()
                 + ", binding=" + binding + ", error=" + error
                 + ", input checked=" + inputChecked + ", available=" + inputAvailable
                 + ", registered=" + inputRegistered + ", active=" + inputActive
-                + ", prewarm=" + inputPrewarm + ", input error=" + inputError;
+                + ", prewarm=" + inputPrewarm + ", input error=" + inputError
+                + "\ncompanion callback timing:\n" + receipts;
+    }
+
+    private void rememberReceipt(String entry) {
+        synchronized (receiptLock) {
+            if (inputReceipts.size() == 64) inputReceipts.removeFirst();
+            inputReceipts.addLast(entry);
+        }
     }
 
     private void disconnect() {

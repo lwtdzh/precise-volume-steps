@@ -188,7 +188,10 @@ final class RootVolumeBridge {
         return context.getString(ready() ? inputReady() ? R.string.root_ready
                 : R.string.root_keys_unavailable : status == 0 ? R.string.root_not_connected : status);
     }
-    String diagnostics() { return status() + ", devices=" + devices + ", input error=" + inputError; }
+    String diagnostics() {
+        return status() + ", ready=" + ready() + ", devices=" + devices
+                + ", input error=" + inputError;
+    }
     private void failed(int message) {
         Consumer<String> result = setupResult;
         disconnect();

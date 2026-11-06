@@ -22,6 +22,10 @@
         android:targetPackage="roro.stellar.volumesteps" />
     <instrumentation android:name=".ReleasedKeyWakeInstrumentation"
         android:targetPackage="roro.stellar.volumesteps" />
+    <instrumentation android:name=".HelperStartupInstrumentation"
+        android:targetPackage="com.vivo.finevolumesteps.helper" />
+    <instrumentation android:name=".PrivilegedHoldInstrumentation"
+        android:targetPackage="roro.stellar.volumesteps" />
     <instrumentation android:name=".LockedRawTimingInstrumentation"
         android:targetPackage="roro.stellar.volumesteps" />
     <instrumentation android:name=".OrdinaryModeProbeInstrumentation"

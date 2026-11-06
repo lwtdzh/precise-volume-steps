@@ -14,6 +14,8 @@ import android.os.Binder;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemClock;
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
 
 /** Held by the main app's foreground service; no activity, overlay, or shell. */
 public final class CompatibilityVolumeProvider extends ContentProvider {
@@ -125,6 +127,10 @@ public final class CompatibilityVolumeProvider extends ContentProvider {
         }
         if (input != null) input.close();
         super.shutdown();
+    }
+
+    @Override public void dump(FileDescriptor fd, PrintWriter writer, String[] args) {
+        writer.println("compatibility input=" + (input == null ? "not created" : input.diagnostics()));
     }
 
     @Override public Bundle call(String method, String arg, Bundle extras) {

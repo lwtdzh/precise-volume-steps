@@ -104,6 +104,20 @@ public final class ReleasedKeyWakeInstrumentation extends Instrumentation {
             check("fixture uses assistant with real helper IPC", report().contains("ready=true")
                     && report().contains("Shizuku=enabled=false") && !audio.isMusicActive());
 
+            // 前一键已松开不应授权当前仍按住的第二键。
+            reset();
+            tap();
+            press(114, 1);
+            Thread.sleep(550);
+            trace("released first press followed by held second press");
+            check("earlier release does not authorize a newer held press",
+                    audio.getStreamVolume(3) == origin);
+            press(114, 2);
+            press(114, 0);
+            settled(target(3));
+            check("released first press and explicit repeat remain counted after final release",
+                    audio.getStreamVolume(3) == target(3));
+
             // User's sequence: two settled presses, third release, power wake, awake down.
             reset();
             tap();
@@ -261,8 +275,15 @@ public final class ReleasedKeyWakeInstrumentation extends Instrumentation {
         press(114, 0);
     }
     private void press(int code, int value) throws Exception {
-        long now = SystemClock.uptimeMillis();
-        invoke(rawKey, "synthetic-helper-wake", code, value, now, now, true, -1);
+        AtomicReference<Exception> error = new AtomicReference<>();
+        runOnMainSync(() -> {
+            long now = SystemClock.uptimeMillis();
+            try {
+                rawKey.invoke(controller, "synthetic-helper-wake", code, value,
+                        now, now, true, -1);
+            } catch (Exception exception) { error.set(exception); }
+        });
+        if (error.get() != null) throw error.get();
     }
     private void awakeDown() throws Exception {
         long now = SystemClock.uptimeMillis();

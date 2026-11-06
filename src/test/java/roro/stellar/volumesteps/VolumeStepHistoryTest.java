@@ -6,6 +6,42 @@ import java.util.Arrays;
 import org.junit.Test;
 
 public final class VolumeStepHistoryTest {
+    @Test public void fasterNativeHoldStaysOnOriginalGridAndRetraces() {
+        for (int max : new int[]{15, 120, 150, 255}) {
+            for (int steps : new int[]{5, 37, 50, 64, 100}) {
+                for (int direction : new int[]{-1, 1}) {
+                    int origin = direction < 0 ? max - 1 : 1;
+                    VolumeStepHistory history = new VolumeStepHistory();
+                    VolumeStepHistory.Plan plan = history.plan(origin, 0, max, steps,
+                            Arrays.asList(direction, direction));
+                    int before = plan.target();
+                    int nativeValue = Math.max(0, Math.min(max, before + direction * 7));
+                    int added = plan.advancePast(nativeValue, direction);
+                    assertTrue(direction * (plan.target() - nativeValue) >= 0);
+                    assertTrue(direction * (plan.target() - before) >= 0);
+                    assertEquals(0, plan.advancePast(nativeValue, direction));
+                    history.confirm(plan);
+                    java.util.ArrayList<Integer> reverse = new java.util.ArrayList<>();
+                    // Limit presses are excluded by Plan.move. These starts
+                    // need at most two original presses to reach an endpoint.
+                    int moved = Math.min(2, Math.min(steps, max)) + added;
+                    for (int n = 0; n < moved; n++) reverse.add(-direction);
+                    assertEquals(origin, history.plan(plan.target(), 0, max, steps, reverse).target());
+                }
+            }
+        }
+    }
+
+    @Test public void slowerNativeHoldDoesNotAddLogicalSteps() {
+        VolumeStepHistory history = new VolumeStepHistory();
+        VolumeStepHistory.Plan plan = history.plan(121, 0, 150, 50, Arrays.asList(-1, -1));
+        assertEquals(115, plan.target());
+        assertEquals(0, plan.advancePast(119, -1));
+        assertEquals(115, plan.target());
+        assertEquals(2, plan.advancePast(111, -1));
+        assertEquals(109, plan.target());
+    }
+
     @Test public void pendingGestureKeepsItsRoundedPathWhenAnOlderWriteConfirms() {
         VolumeStepHistory history = new VolumeStepHistory();
         history.confirm(history.plan(74, 0, 150, 64, Arrays.asList(1, 1)));

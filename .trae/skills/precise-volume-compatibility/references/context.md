@@ -41,6 +41,17 @@ fixture runs separately. Final restoration passed 21/21 after correcting empty
 log-property quoting in the temporary restoration script. No physical phone
 was connected during this work.
 
+## 连按和长按再次报告，2026-11-06
+
+前一版文档中的 `hadRelease` 修复、强制亮屏回到 Accessibility 的约束，以及
+未经执行的通过结论已撤回。新的真实 helper IPC 模拟器测试证明 `hadRelease`
+会结算尚未松开的后一键；该修改已移除。最近提交改变特权亮屏 ownership，
+但助手 `released` 累计逻辑并非在该提交中引入，不能据此断言最近提交造成
+助手漏键。两个用户报告仍待完整复现与真机验证。
+
+具体提交、函数、失败版本及持续记录要求见
+[故障记录](../../precise-volume-regression/references/incident-log.md)。
+
 ## Scope and current identity
 
 The project began as the independent `volume-steps` module inside
@@ -500,3 +511,15 @@ Earlier intermediate evidence lived in `/tmp/fvs-*`: decompiled framework files,
 installer/accessibility scripts, logs, probes and HID binary. Those paths may
 disappear; the findings and permanent tests are preserved here. Do not require
 those files to build or understand the app.
+
+## 2026-11-06 long-hold follow-up
+
+See [R33–R40 incident evidence](../../precise-volume-regression/references/incident-log.md).
+For privileged holds, retain native repeats once actual native progress has
+been observed. AudioService can apply an accepted absolute write after a newer
+native repeat; a matching expected-current check does not make their ordering
+atomic. Settle a native-driven hold after actual readback quiet, on the original
+rounding path at or beyond its native progress. Keep Android timer updates for
+consumed down/up-only holds, and exclude the app's own last confirmed write from
+native-progress detection. Helper holds still require their complete release.
+Record synthetic, external HID and built-in physical delivery separately.

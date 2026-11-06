@@ -167,6 +167,16 @@ python3 tests/run_instrumentation.py --serial PHONE_SERIAL \
 
 # Disposable emulator only for rejected-write/frame and screen-off fixtures
 python3 tests/run_instrumentation.py --serial EMULATOR_SERIAL \
+  --suite helper-startup \
+  --apk build/outputs/apk/release/precise-volume-steps-release.apk \
+  --host-apk tests/host/build/outputs/apk/debug/precise-volume-steps-test-host-debug.apk \
+  --output /tmp/pvs-helper-startup
+python3 tests/run_instrumentation.py --serial EMULATOR_SERIAL \
+  --suite privileged-hold --backend shizuku --steps 10 \
+  --apk build/outputs/apk/release/precise-volume-steps-release.apk \
+  --host-apk tests/host/build/outputs/apk/debug/precise-volume-steps-test-host-debug.apk \
+  --output /tmp/pvs-privileged-hold
+python3 tests/run_instrumentation.py --serial EMULATOR_SERIAL \
   --suite frames --output /tmp/pvs-emulator
 python3 tests/run_instrumentation.py --serial EMULATOR_SERIAL \
   --suite layout --output /tmp/pvs-emulator
@@ -202,6 +212,43 @@ Use `three-modes.md` for the limitations of a temporary test broker.
 Pass `--apk` and `--host-apk` on any fixture to require installed byte hashes.
 After introducing `operating_mode`, external HID and other preference fixtures
 must set that value as well as the legacy Shizuku flag, then restore both.
+
+`helper-startup` targets the helper and adopts DUMP only for the test process.
+It supplies strict synthetic EventHub dumps to the actual monitor, checks the
+idle awake baseline, immediate screen-off first press, paired rapid edges,
+wake continuity, unregister and unproven initial holds. AOSP does not supply
+the verified Vivo EventHub devices; this is not a physical-input qualification.
+`privileged-hold` supplies synthetic raw edges/readiness while retaining the
+actual selected volume Binder. It checks actual volume before UP, native writes
+at Android's repeat cadence, release count/rebound, chords and unmatched input
+with accessibility disabled. `--backend root` requires usable app su/libsu.
+The backend suite verifies synthetic Accessibility fallback with the actual
+selected volume Binder. On a phone with a ready privileged raw reader, it clears
+and restores only that reader's device count around each injected callback.
+Report this test condition; the callback would otherwise be correctly ignored.
+Keep real raw ownership in separate hold/HID/physical tests. Assistant prewarm
+being disabled must retain the registered baseline; unregister/death stops it.
+The expanded fixture has 36 assertions, including reverse/explicit holds,
+stale/chord/expiry/disabled/mode/readiness cases and actual rendered readback
+frames. A SETTLING frame contains an acknowledged readback; do not confuse it
+with a PENDING frame.
+`--scenario settling` selects ten assertions for independent native writes
+after release (150/350/550 ms), final count, later passive preset and cancellation
+on disabled/readiness/mode changes, plus a synthetic early rejection that must
+retain the pending quiet observation. Record actual write offsets; a native writer
+on the app's main queue cannot represent independently arriving system writes.
+The production retry waits for readback quiet for 300 ms within the original
+one-second lifetime, permits one settling retry, then observes its readback too.
+Neither fixture proves GPIO delivery or actual Vivo repeat timing. Retain every
+failed run and the before/after comparison described in [incident log](incident-log.md).
+
+`--scenario native-hold` selects 26 assertions for native steps smaller than,
+equal to and larger than configured steps, in DOWN and UP directions. It samples
+actual AudioManager readback during the hold and for 1.4 seconds after release,
+checks monotonic progress, no pending correction and absence of concurrent
+absolute writes while native repeats are active. Test consumed down/up-only
+holds in the complete suite as well. R40 records why expected-current checks
+alone cannot protect an already-queued absolute AudioService write.
 
 Use the actual `emulator-NNNN` serial in place of EMULATOR_SERIAL. The runner
 rejects frame/screen-off fixtures for a non-emulator serial.
@@ -416,6 +463,27 @@ process targeting the main package is torn down when instrumentation exits; a
 mode-switch fixture must start the normal main activity before judging
 asynchronous Root or Shizuku readiness. Keep built-in physical buttons,
 external HID and synthetic callbacks as separate evidence.
+On an adb-root disposable emulator, omit `--preset-dex` to use
+`cmd media_session` with verified readback; the exact preset dex requires shell
+UID 2000. Root writer readiness must not require a created input device, and
+the indented dumpsys Root line must be parsed correctly. The fixture restores
+the initial accessibility list/master rather than always leaving it enabled.
+Use `--root-hid` only with already-authorized su to run the external UHID tool
+without changing device-node permissions. `--existing-setup` checks the currently
+selected ready backend/steps and connected accessibility without changing
+preferences or removing the service; use it for input behavior after restoring
+instrumentation. The default removal/automatic-recovery scenario remains a
+separate test. Do not replace a failed recovery test with an existing-setup pass.
+Live holds now check every sampled DOWN/UP readback through settling, at least
+the Android repeat-count progress, the anchored rounding path and no pending
+correction. Short-press exact reversal remains separate; equal hold duration
+does not imply identical native progress in opposite directions.
+`write_report.py` accepts instrumentation `results` and HID `checks`, preserving
+every original false assertion and error.
+See R36 in [incident log](incident-log.md) for the failed five-key burst,
+the original/current independent-native comparison and each subsequent HID
+rerun. Passing controlled hold instrumentation does not replace external input
+or built-in physical-button results.
 
 ## Ordinary helper screen-off checks
 

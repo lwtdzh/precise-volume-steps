@@ -50,6 +50,11 @@ final class RawCorrectionTiming {
         return !newerGestureWaiting && stabilizeUntil > now;
     }
 
+    static long quietUntil(long now, long stabilizeUntil, long deadline, long quietMs) {
+        if (stabilizeUntil <= 0 || now >= deadline) return stabilizeUntil;
+        return Math.min(deadline, Math.max(stabilizeUntil, now + quietMs));
+    }
+
     static boolean shouldRetryAfterSettle(long now, long stabilizeUntil,
                                           boolean alreadyRetried, boolean newerGestureWaiting,
                                           int origin, int current, int target,

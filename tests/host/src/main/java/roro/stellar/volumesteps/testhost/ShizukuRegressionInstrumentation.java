@@ -143,15 +143,15 @@ public final class ShizukuRegressionInstrumentation extends Instrumentation {
                 }
                 check("assistant input prewarm starts while display is on", warm);
                 prewarm.invoke(remote, false);
-                boolean stopped = false;
+                boolean baselineKept = false;
                 for (int n = 0; n < 50; n++) {
-                    if (!(boolean) inputActive.invoke(remote)) {
-                        stopped = true;
+                    if ((boolean) inputActive.invoke(remote)) {
+                        baselineKept = true;
                         break;
                     }
                     Thread.sleep(20);
                 }
-                check("assistant input prewarm stops while display is on", stopped);
+                check("assistant input baseline survives disabled prewarm while awake", baselineKept);
             }
             check("idle background does not open panel", quiet(1400));
             int stale = call(baseline - 1, baseline + 1, SystemClock.uptimeMillis() + 500);
@@ -327,8 +327,9 @@ public final class ShizukuRegressionInstrumentation extends Instrumentation {
                 check("bounded key wake lock released", report().contains("key wake lock held=false"));
             }
             result.putString("diagnostics", report());
-            result.putString("input", "synthetic controller key callbacks; actual "
-                    + (companion ? "ordinary companion" : "Shizuku")
+            result.putString("input", "synthetic accessibility callbacks with privileged input "
+                    + "readiness cleared only during each callback; actual "
+                    + (root ? "Root" : companion ? "ordinary companion" : "Shizuku")
                     + " IPC and system audio; app on home screen");
         } catch (Exception exception) {
             result.putString("error", exception.toString());
@@ -424,8 +425,30 @@ public final class ShizukuRegressionInstrumentation extends Instrumentation {
         AtomicReference<Object> value = new AtomicReference<>();
         AtomicReference<Exception> failure = new AtomicReference<>();
         runOnMainSync(() -> {
-            try { value.set(method.invoke(controller, args)); }
+            Field devices = null;
+            Object reader = null;
+            int savedDevices = 0;
+            try {
+                if (method == key && !companion) {
+                    // This suite verifies the accessibility fallback with a
+                    // real selected writer. Privileged raw ownership is tested
+                    // separately by hold/HID/physical input; otherwise an
+                    // available phone reader correctly ignores these callbacks.
+                    Field connection = controller.getClass().getDeclaredField(root ? "root" : "rawKeys");
+                    connection.setAccessible(true);
+                    reader = connection.get(controller);
+                    devices = reader.getClass().getDeclaredField("devices");
+                    devices.setAccessible(true);
+                    savedDevices = devices.getInt(reader);
+                    devices.setInt(reader, 0);
+                }
+                value.set(method.invoke(controller, args));
+            }
             catch (Exception exception) { failure.set(exception); }
+            finally {
+                if (devices != null) try { devices.setInt(reader, savedDevices); }
+                catch (Exception exception) { failure.set(exception); }
+            }
         });
         if (failure.get() != null) throw failure.get();
         return value.get();

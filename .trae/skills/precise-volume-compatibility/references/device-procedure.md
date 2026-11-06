@@ -182,7 +182,9 @@ completion. Restore all preferences in cleanup, not only steps or backend.
 Remove only fixtures introduced for the session and confirm no active playback,
 pending correction, overlay or key wake lock remains.
 When verifying removal, `pm path` returns status 1 for an absent package.
-Use an exact `pm list packages` comparison or explicitly handle that status;
+Use an exact `pm list packages --user USER_ID` comparison for the selected
+Android user or explicitly handle that status. A default list can try other
+profiles and return a shell permission error; that does not establish absence.
 do not label the expected absence as a failed uninstall.
 
 ## Screen and installation record
