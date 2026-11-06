@@ -3,7 +3,7 @@
 计划版本：2026-11-06。适用于后续开发、修复、升级和发布前验证。
 本文件规定如何测试，不登记某个版本已经通过。每轮结果使用
 [执行记录模板](test-run-template.md)，历史反馈对应关系见
-[83 项反馈与用例对照](feedback-coverage.md)。
+[历史反馈与用例对照](feedback-coverage.md)。
 
 ## 1. Agent 从这里开始
 
@@ -336,7 +336,7 @@ endpoint 真正连接。其他无障碍服务需同时保持 enabled 与 bound�
 | PV-D04 | pending、短 burst、反向、settling、拒写：录第一帧到消失。 | pending 保留前次真实值，确认或失败更新真实结果；无粗调中间帧、正在修正帧、反复重画/闪烁。 |
 | PV-D05 | 第三行 enabled，delay/reject write，重新 attach 面板；逐帧与独立 native readback 比较。 | 第三行不显示 target；失败显示 actual；读失败明示；observer 每次 attach 都有效。 |
 | PV-D06 | 锁屏亮着与解锁亮屏/息屏：记录 UP→write→attach→first visible 时间，再解锁。 | 不丢面板、不出现秒级无故延迟；有界等待/实际时序单列；可见面板解锁后不闪/重开。 |
-| PV-D07 | 深/浅主题、浅/深壁纸、状态栏图标、通知渠道、权限撤销恢复；ON/OFF。 | 白底/透明差异分开记录资源和 OEM 呈现，不能预设原因；通知内容反映真实状态，当前档位信息完整。 |
+| PV-D07 | 三模式 ready/未 ready 切换，特别是 Root writer/input 就绪、连接中、reader 丢失；深/浅主题、浅/深壁纸、状态栏图标、通知渠道、权限撤销恢复；ON/OFF。 | 三模式 ready 状态使用同一绿色；Root 只有 writer 和 input 都 ready 才绿色，连接中/未连接/按键不可用恢复普通状态色，不依赖翻译文字判断。白底/透明差异分开记录资源和 OEM 呈现；通知反映实际状态，当前档位信息完整。 |
 | PV-D08 | 模拟器/真机：横竖屏、窄屏、放大字体/显示比例、刘海/insets；permission guide/setup。 | 按钮可到达、无遮挡/截断/崩溃；面板边距/三行不乱；设置保存。 |
 | PV-D09 | 导出诊断：ready、不 ready、server 退出、刚失败后，打开分享后取消。 | 包含当前 mode/readiness/范围/事件与实际版本来源；导出不改音量/播放/设置；不自动向外发送。 |
 
@@ -431,7 +431,7 @@ endpoint 真正连接。其他无障碍服务需同时保持 enabled 与 bound�
 | ID | 环境与操作 | 预期和证据 |
 |---|---|---|
 | PV-H01 | 每轮开始：列设备、C0、installed hashes、actual app su/reader/player，工具需要什么能力先核对。 | 单一明确目标；前提缺失记 BLOCKED/ERROR；未执行断言不报通过，不误判 app 无 Root。 |
-| PV-H02 | 每轮：137 用例目录＋第 4 节组合＋83反馈映射＋P01–P29/R/N 的适用行核对。 | 每项有执行状态；不存在因为只汇报 P01–P23 漏项；新功能/故障有 ID；计划变更有版本记录。 |
+| PV-H02 | 每轮：137 用例目录＋第 4 节组合＋全部历史反馈映射＋P01–P29/R/N 的适用行核对。 | 每项有执行状态；不存在因为只汇报 P01–P23 漏项；新功能/故障有 ID；计划变更有版本记录。 |
 | PV-H03 | 模拟器破坏性准备/AppOps/clear-data/e2e；真机使用只读 recorder、实际物理键流程。 | 工具位置正确；不把个人手机当隔离模拟器；不会为了采集启动假播放或恢复缺 Shizuku 的失败现场。 |
 | PV-H04 | 采集 ready 后操作；窗口超时、终端中断、ADB255、USB拔出分别检查设备端进程/结果。 | 实际 event 落在有效窗口；先救原记录再考虑新输入；complete 和按键/行为成功分开；空窗口 INCOMPLETE。 |
 | PV-H05 | 每次 UI 观察/解锁/fixture 后：actual playback/main/player PID/accessibility。 | 非 suppressing observer；真实播放器不中断；不因测试进程退出破坏证据，影响照实保存。 |
@@ -557,7 +557,7 @@ readback；看到 UNCONFIRMED 就按该场景预期判定，不能用日志中�
 
 ## 10. 持续维护
 
-每个新用户问题追加 `UF-084` 起的反馈编号和对应 PV 用例；新工程故障追加
+每个新用户问题按反馈表末尾继续追加编号和对应 PV 用例；新工程故障追加
 incident，并在本计划加复现条件和关联测试。旧 PV、P、R 编号保留。
 新增功能至少包含正常流程、拒绝/失败、切换/中断、持久化/恢复和旧功能保护，
 若某方面不适用写理由。

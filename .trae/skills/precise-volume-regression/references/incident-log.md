@@ -1311,3 +1311,46 @@ exact preset工具先全部归档到Git外
 清理后返回原生主页面并息屏，首次即时snapshot已Asleep但keyguard尚未
 locked，立即断言锁定会误报；随后独立settled snapshot确认locked=true、
 helper active、76/150与实际播放保持，原即时状态及成功复核均保留。
+
+## UF-084：Root 就绪状态颜色
+
+2026-11-06 用户反馈：助手和 Shizuku 就绪状态显示绿色，Root 就绪文字却
+使用普通深色；要求 Root 同样显示绿色。
+
+源码原因：`0ed2984` 上的 `MainActivity.refreshShizukuStatus()` 在 Root
+分支始终调用 `setTextColor(COLOR_SECONDARY)`，没有使用就绪条件。
+`RootVolumeBridge.status()` 仅在 writer 和 input 都 ready 时返回
+`root_ready`，`VolumeAdjustmentController.rootInputReady()` 返回相同输入
+就绪条件。因此本轮在 Root 分支按 `controller.rootInputReady()` 选择
+已有 `COLOR_ACCENT`（绿色）或 `COLOR_SECONDARY`，不通过翻译文字判断状态。
+controller 不在、连接中、writer 未连接或 input 不可用时保持普通状态色。
+
+首次验证的补丁基于 `0ed2984`。当时构建版本仍是主应用 1.5.3/code31：
+SHA-256 `6af6e3db0291e79d0c95a4596f71393e68fb05828c1110963fa7bb93c5613255`；
+本轮重新打包的助手 SHA-256
+`940f8a955c0302cb94c00d2ab594445e3a946a6c24e1dd0ed2f08c7d0eaaac62`。
+main release build、67/67 单测、main/helper release lint（0 errors）通过。
+助手单测 task 为 UP-TO-DATE，未变化源码的既有 XML 为 3/3，
+不记录为本轮重新执行。没有新增模拟器或真机安装/按键/UI 测试，
+实际页面状态切换的颜色验证仍未执行；编译与单测不证明页面已实际显示绿色。
+
+本次反馈接续在 [UF-084 对照表](feedback-coverage.md)，扩展已有
+[PV-D07](test-plan.md) 检查三个模式的 ready 绿色、Root 未就绪回到普通色、
+切模式/断线/重连及不同语言下的显示。现有 PV 编号总数仍为 137。
+
+随后用户授权安装到 Vivo V2419A/API36。已确认新旧主 APK 证书一致，
+通过当前安装器的风险 checkbox 和 Continue installing 完成覆盖安装，
+`adb install -r` 返回 Success；设备端 APK 实际 SHA-256 与上述主 APK 相同。
+本轮安装前手机已由用户改为 Shizuku/50 阶、121/150、idle，按这个新现场保留，
+没有恢复成更早的助手/蓝牙播放测试状态，也没有切换到 Root。
+安装后 Shizuku writer、raw reader、主无障碍重新连接，原完整 enabled list
+和 bound services 保持；stay-awake 恢复0、timeout保持600000，音量仍121/150、
+无 pending。安装器 UI dump 临时文件已清理，快照、原 APK 和安装核对结果
+留在 Git 外。以上证明安装和恢复；Root ready 颜色的实际页面验证仍未执行。
+
+用户随后要求提交、推送并发布新版本。1.5.4/code32 包含本修复、更新的反馈/
+计划记录和版本信息；发布提交包含这些源码及实际分发APK。
+本轮重新执行main67/helper3 release单测、build和lint，打包hash与证书核对见
+[1.5.4发布包记录](../../../../dist/verification-1.5.4.md)。
+先前1.5.3开发包的手机安装结果与1.5.4发布包构建分开；未追加Root页面颜色
+实际验证、全量物理按键或其他固件通过结论。

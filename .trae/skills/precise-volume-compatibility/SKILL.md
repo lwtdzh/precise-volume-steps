@@ -16,6 +16,9 @@ are references, not current-version qualification.
 追加对应条件和用例，并链接实测证据。保留已有编号、失败和未验证组合，
 同步反馈映射与执行模板；新设备结果不能直接继承其他固件的通过记录。
 
+[Root 状态色反馈 UF-084](../precise-volume-regression/references/incident-log.md#uf-084root-就绪状态颜色)
+单独记录界面颜色与后端就绪条件；不从文字颜色推导厂商按键支持。
+
 Read [implementation and historical findings](references/context.md) before
 changing a backend, startup path, key handling, or volume calculation.
 Read [故障记录与撤回的修复](../precise-volume-regression/references/incident-log.md)

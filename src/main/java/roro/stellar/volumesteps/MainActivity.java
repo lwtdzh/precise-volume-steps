@@ -366,7 +366,8 @@ public final class MainActivity extends Activity {
         if (VolumeStepSettings.mode(this) == OperatingMode.ROOT) {
             shizukuStatus.setText(controller == null ? getString(R.string.enable_first)
                     : controller.rootStatus());
-            shizukuStatus.setTextColor(COLOR_SECONDARY);
+            shizukuStatus.setTextColor(controller != null && controller.rootInputReady()
+                    ? COLOR_ACCENT : COLOR_SECONDARY);
             return;
         }
         if (VolumeStepSettings.mode(this) == OperatingMode.ASSISTANT) {

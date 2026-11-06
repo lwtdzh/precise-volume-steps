@@ -7,7 +7,7 @@ description: Verify volume behavior and releases against past user feedback. Use
 
 Start with [迭代测试主计划](references/test-plan.md). It defines 137 stable cases,
 per-iteration and full verification, device combinations and restoration rules.
-Cross-check [历史83项反馈](references/feedback-coverage.md) and create a new
+Cross-check [历史反馈](references/feedback-coverage.md) and create a new
 [执行记录](references/test-run-template.md) for each iteration. Do not inherit old
 pass results. For a plan-only documentation change, validate the documents
 without operating a phone.
@@ -15,6 +15,9 @@ without operating a phone.
 测试计划随迭代持续补充。出现新功能、新故障、设备差异或新的注意事项时，
 随时追加用例，写清前提、操作、预期、证据和恢复；保留原编号与原失败记录，
 同步更新主计划、反馈映射、用例总数和执行模板。
+
+[UF-084：Root 就绪状态颜色](references/incident-log.md#uf-084root-就绪状态颜色)
+记录主页状态色问题及 PV-D07 的新增检查条件。
 
 Read [build and automated suites](references/commands.md) and
 [the physical-phone feedback matrix](references/phone-matrix.md).

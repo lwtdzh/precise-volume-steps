@@ -7,3 +7,4 @@ d22ad36b82aea32afd0a3514fa7bb682edc3bc6bcee64ada16fb0c516bde3d73  precise-volume
 d9041271a603264ea10ac17a2e01c8544111537398dc57b7353c1cac4e3384a7  precise-volume-steps-1.5.1.apk
 765d772bc1472e7ad0a8d4b4a790d0299ee8c284aa7657d76ea9da0383b3d24b  precise-volume-steps-compatibility-helper-1.4.apk
 04fc06969f7b627279abe9a6bef9b60aea30b378ba10a7cbe54ef02f5a8d58b6  precise-volume-steps-1.5.3.apk
+cf3cf384ec0b5a6db9584dba363ccf29397256268cf02f6c0e80494756912913  precise-volume-steps-1.5.4.apk
