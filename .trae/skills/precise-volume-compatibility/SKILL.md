@@ -5,6 +5,17 @@ description: Preserve device findings and diagnose Android volume backends. Use 
 
 # Device compatibility
 
+For iteration verification, use the
+[完整测试计划](../precise-volume-regression/references/test-plan.md) and
+[历史反馈对应表](../precise-volume-regression/references/feedback-coverage.md).
+They retain separate ordinary, Shizuku, Root, physical-input and actual-output
+results. Record each run using the linked template; historical device passes
+are references, not current-version qualification.
+
+新增设备差异、权限限制、按键/音频策略或其他注意事项时，随时在主测试计划
+追加对应条件和用例，并链接实测证据。保留已有编号、失败和未验证组合，
+同步反馈映射与执行模板；新设备结果不能直接继承其他固件的通过记录。
+
 Read [implementation and historical findings](references/context.md) before
 changing a backend, startup path, key handling, or volume calculation.
 Read [故障记录与撤回的修复](../precise-volume-regression/references/incident-log.md)

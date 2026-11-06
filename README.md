@@ -4,6 +4,8 @@
 
 支持简体中文、繁体中文（香港、澳门、台湾）、日文和英文，默认跟随系统语言。Android 13 及以上可在系统的“应用语言”设置中单独选择；其他语言使用英文。
 
+[下载与安装](#下载与安装) · [迭代测试计划](.trae/skills/precise-volume-regression/references/test-plan.md)
+
 ## 下载与安装
 
 | 运行模式 | 适合谁 | 设置方式 |
@@ -72,9 +74,13 @@ adb shell pm grant com.vivo.finevolumesteps.helper android.permission.DUMP
 
 复现问题后，在主应用点击 **更多设置与诊断 → 导出运行诊断**。提供机型、系统版本、档数、使用模式，以及问题发生在前台、后台、锁屏还是息屏。**调节范围** 也在更多设置中，默认仅媒体音量。
 
-## 开发资料
+## 开发与测试
 
 [设备兼容技能与历史记录](.trae/skills/precise-volume-compatibility/SKILL.md) · [真机测试技能与反馈用例](.trae/skills/precise-volume-regression/SKILL.md)
+
+后续迭代按[测试主计划](.trae/skills/precise-volume-regression/references/test-plan.md)验证，覆盖单测、模拟器流程和真机操作。当前有 137 个固定编号用例，并附[历史反馈对照表](.trae/skills/precise-volume-regression/references/feedback-coverage.md)和[每轮执行记录模板](.trae/skills/precise-volume-regression/references/test-run-template.md)。可以直接让 Agent“按项目测试计划做完整验证”，逐项记录通过、失败、未测组合和设置恢复。
+
+测试计划随开发持续补充。出现新功能、新故障、设备差异或需要注意的行为时，随时增加条目，写清前提、操作、预期结果、证据和恢复步骤；保留已有编号与原失败记录，并同步更新反馈映射、用例总数和执行模板。
 
 [1.5.1 测试记录](dist/verification-1.5.1.md) 包含锁屏修复、实际安装包校验值、自动测试、原失败和尚未验证的项目。[1.5.0 记录](dist/verification-1.5.0.md) 保留以前的测试结果。
 

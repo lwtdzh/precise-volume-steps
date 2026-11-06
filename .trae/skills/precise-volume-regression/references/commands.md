@@ -1,5 +1,10 @@
 # Standalone build and automated evidence
 
+Use the [iteration test plan](test-plan.md) to select and track cases and
+[the run template](test-run-template.md) to record complete device combinations.
+The commands here run existing tools; some new plan cases require manual
+emulator/phone flows or an additional controlled fixture.
+
 Run from the repository root. Python utilities require Python 3.9+; Android
 builds require JDK 21, Android platform 37.0 and build-tools 36.0.0.
 Set ANDROID_HOME/JAVA_HOME for the current machine or provide a local SDK path.
@@ -16,6 +21,7 @@ sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0'
 ./gradlew -PvolumeStepsE2E=true \
   :assembleRelease :lintRelease :testReleaseUnitTest \
   :compatibility-helper:assembleRelease :compatibility-helper:lintRelease \
+  :compatibility-helper:testReleaseUnitTest \
   :precise-volume-steps-test-host:assembleDebug \
   :precise-volume-steps-test-ui:assembleDebug
 ```
@@ -29,6 +35,7 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home \
 bash gradlew --offline -PvolumeStepsE2E=true \
   :assembleRelease :lintRelease :testReleaseUnitTest \
   :compatibility-helper:assembleRelease :compatibility-helper:lintRelease \
+  :compatibility-helper:testReleaseUnitTest \
   :precise-volume-steps-test-host:assembleDebug \
   :precise-volume-steps-test-ui:assembleDebug
 ```
@@ -41,6 +48,7 @@ compatibility-helper/build/outputs/apk/release/compatibility-helper-release.apk
 tests/host/build/outputs/apk/debug/precise-volume-steps-test-host-debug.apk
 tests/ui/build/outputs/apk/debug/precise-volume-steps-test-ui-debug.apk
 build/test-results/testReleaseUnitTest/TEST-*.xml
+compatibility-helper/build/test-results/testReleaseUnitTest/TEST-*.xml
 build/reports/lint-results-release.xml
 ```
 
@@ -53,7 +61,9 @@ changes; record actual tested hash, not only versionName.
 
 ## Existing unit tests
 
-Current count is 35 (may grow):
+Read the actual main/helper XML totals for each build. Counts quoted in dated
+reports describe those builds only. The following list describes established
+coverage, not the complete current test inventory:
 
 - `VolumeDisplayTest`: independent percent/configured-scale mapping.
 - `VolumeStepQuantizerTest`: older grid utility behavior.

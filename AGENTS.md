@@ -9,6 +9,16 @@ Read these repository skills before changing behavior:
   build commands, automated checks, physical-phone tests, installer handling,
   restoration, and all user feedback cases.
 
+For iteration verification, start with the
+[complete test plan](.trae/skills/precise-volume-regression/references/test-plan.md).
+Use its stable case IDs, historical-feedback mapping and per-run record template.
+Keep all failures and untested device combinations visible; old passes do not
+qualify a new APK. A request to improve the plan alone does not require phone tests.
+Extend the plan whenever new features, failures, device differences or behavioral
+constraints appear. Add reproducible steps, expected results, evidence and
+restoration; preserve existing IDs and failures, and update the feedback mapping,
+case totals and run template together.
+
 This directory is a standalone Git repository and Gradle project. Run commands
 from here. Do not publish the enclosing privilege-assistant repository or alter
 its unrelated modules. Root app sources are in `src/`; the helper is in
